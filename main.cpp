@@ -11,21 +11,23 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <unordered_map>
 #include <tlhelp32.h>
 #include <wbemidl.h>
 #include <comdef.h>
+#include <psapi.h>
 #include <sstream>
 #include <iomanip>
 #include <locale>
 #include <codecvt>
 #include <chrono>
 #include <ctime>
-#include <tlhelp32.h>
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "wbemuuid.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "psapi.lib")
 
 #define WM_TRAYICON (WM_USER + 1)
 #define ID_TRAY_EXIT 1001
@@ -90,32 +92,29 @@ void AddTrayIcon(HWND);
 void RemoveTrayIcon(HWND);
 void ShowTrayMenu(HWND, POINT);
 void ShowConfigDialog(HWND owner);
-std::vector<std::wstring> EnumerateRenderDevices();
+std::vector<std::wstring> EnumerateRenderDevices(IMMDeviceEnumerator* pEnum = nullptr);
 std::vector<DeviceConfig> LoadDevicesFromFile(const std::wstring& filename);
 bool SaveDevicesToFile(const std::wstring& filename, const std::vector<DeviceConfig>& devices);
-std::vector<DiscordSession> EnumerateDiscordSessions(const std::wstring& deviceName);
+std::vector<DiscordSession> EnumerateDiscordSessions(const std::wstring& deviceName, IMMDeviceEnumerator* pEnum = nullptr);
 std::wstring StableSessionFingerprint(const std::wstring& sid);
 bool isDiscordRunning();
 int checkToMute();
 void RunDiagnostic(HWND owner);
 bool ShowSessionPicker(HWND owner, const std::wstring& deviceName, DeviceConfig& ioCfg);
+static std::unordered_map<std::wstring, std::vector<DWORD>> BuildDiscordPidsByDevice(IMMDeviceEnumerator* pEnum = nullptr);
 
 // ---------- Process / session helpers ----------
 
 std::wstring GetProcessName(DWORD pid) {
-    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snap == INVALID_HANDLE_VALUE) return L"";
-    PROCESSENTRY32W entry = { sizeof(PROCESSENTRY32W) };
-    if (Process32FirstW(snap, &entry)) {
-        do {
-            if (entry.th32ProcessID == pid) {
-                CloseHandle(snap);
-                return entry.szExeFile;
-            }
-        } while (Process32NextW(snap, &entry));
-    }
-    CloseHandle(snap);
-    return L"";
+    HANDLE hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hProc) return L"";
+    wchar_t buf[MAX_PATH] = {};
+    DWORD size = MAX_PATH;
+    BOOL ok = QueryFullProcessImageNameW(hProc, 0, buf, &size);
+    CloseHandle(hProc);
+    if (!ok) return L"";
+    const wchar_t* slash = wcsrchr(buf, L'\\');
+    return slash ? slash + 1 : buf;
 }
 
 // SessionIdentifier format (typical):
@@ -143,11 +142,14 @@ std::wstring StableSessionFingerprint(const std::wstring& sid) {
     return tail;
 }
 
-static CComPtr<IMMDevice> FindDeviceByName(const std::wstring& deviceName) {
-    CComPtr<IMMDevice> found;
-    CComPtr<IMMDeviceEnumerator> pEnum;
-    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-        IID_PPV_ARGS(&pEnum)))) return nullptr;
+static CComPtr<IMMDevice> FindDeviceByName(const std::wstring& deviceName, IMMDeviceEnumerator* pEnumIn = nullptr) {
+    CComPtr<IMMDeviceEnumerator> pLocalEnum;
+    IMMDeviceEnumerator* pEnum = pEnumIn;
+    if (!pEnum) {
+        if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+            IID_PPV_ARGS(&pLocalEnum)))) return nullptr;
+        pEnum = pLocalEnum;
+    }
 
     CComPtr<IMMDeviceCollection> pDevices;
     if (FAILED(pEnum->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &pDevices))) return nullptr;
@@ -172,9 +174,9 @@ static CComPtr<IMMDevice> FindDeviceByName(const std::wstring& deviceName) {
     return nullptr;
 }
 
-std::vector<DiscordSession> EnumerateDiscordSessions(const std::wstring& deviceName) {
+std::vector<DiscordSession> EnumerateDiscordSessions(const std::wstring& deviceName, IMMDeviceEnumerator* pEnum) {
     std::vector<DiscordSession> sessions;
-    CComPtr<IMMDevice> pDevice = FindDeviceByName(deviceName);
+    CComPtr<IMMDevice> pDevice = FindDeviceByName(deviceName, pEnum);
     if (!pDevice) return sessions;
 
     CComPtr<IAudioSessionManager2> pMgr;
@@ -230,17 +232,19 @@ std::vector<DiscordSession> EnumerateDiscordSessions(const std::wstring& deviceN
     return sessions;
 }
 
-// Returns Discord PIDs found owning audio sessions on render devices OTHER than excludeDevice.
-// Any Discord PID that shows up on another device is the "main audio" process — Discord is
-// routing the same session to multiple outputs. The PID that only shows up on the target
-// device is the stream-only child process.
-static std::vector<DWORD> GetDiscordPidsOnOtherDevices(const std::wstring& excludeDevice) {
-    std::vector<DWORD> pids;
-    CComPtr<IMMDeviceEnumerator> pEnum;
-    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-        IID_PPV_ARGS(&pEnum)))) return pids;
+// Builds a map of { deviceName -> [Discord PIDs on that device] } for all active render devices.
+// Called once per mute cycle instead of once per device, eliminating the O(N^2) re-enumeration.
+static std::unordered_map<std::wstring, std::vector<DWORD>> BuildDiscordPidsByDevice(IMMDeviceEnumerator* pEnumIn) {
+    std::unordered_map<std::wstring, std::vector<DWORD>> result;
+    CComPtr<IMMDeviceEnumerator> pLocalEnum;
+    IMMDeviceEnumerator* pEnum = pEnumIn;
+    if (!pEnum) {
+        if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+            IID_PPV_ARGS(&pLocalEnum)))) return result;
+        pEnum = pLocalEnum;
+    }
     CComPtr<IMMDeviceCollection> pDevices;
-    if (FAILED(pEnum->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &pDevices))) return pids;
+    if (FAILED(pEnum->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &pDevices))) return result;
     UINT count = 0; pDevices->GetCount(&count);
     for (UINT i = 0; i < count; i++) {
         CComPtr<IMMDevice> pDevice;
@@ -249,9 +253,9 @@ static std::vector<DWORD> GetDiscordPidsOnOtherDevices(const std::wstring& exclu
         if (FAILED(pDevice->OpenPropertyStore(STGM_READ, &pProps))) continue;
         PROPVARIANT varName; PropVariantInit(&varName);
         bool nameOk = SUCCEEDED(pProps->GetValue(PKEY_Device_FriendlyName, &varName)) && varName.pwszVal;
-        bool skip = nameOk && excludeDevice == varName.pwszVal;
+        std::wstring devName = nameOk ? varName.pwszVal : L"";
         PropVariantClear(&varName);
-        if (skip) continue;
+        if (devName.empty()) continue;
 
         CComPtr<IAudioSessionManager2> pMgr;
         if (FAILED(pDevice->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, (void**)&pMgr))) continue;
@@ -265,16 +269,16 @@ static std::vector<DWORD> GetDiscordPidsOnOtherDevices(const std::wstring& exclu
             if (!pCtl2) continue;
             DWORD pid = 0; pCtl2->GetProcessId(&pid);
             if (_wcsicmp(GetProcessName(pid).c_str(), L"Discord.exe") == 0)
-                pids.push_back(pid);
+                result[devName].push_back(pid);
         }
     }
-    return pids;
-}
+    return result;}
 
 // Returns: 0 = device not found, 1 = at least one matching session muted,
 // 2 = device found but no matching Discord session (retry-worthy).
-int MuteDiscordOnDevice(const DeviceConfig& cfg) {
-    CComPtr<IMMDevice> pDevice = FindDeviceByName(cfg.name);
+// otherPids: Discord PIDs on devices other than cfg.name (pre-computed by caller).
+int MuteDiscordOnDevice(const DeviceConfig& cfg, const std::vector<DWORD>& otherPids, IMMDeviceEnumerator* pEnum = nullptr) {
+    CComPtr<IMMDevice> pDevice = FindDeviceByName(cfg.name, pEnum);
     if (!pDevice) {
         #ifdef DEBUG
         std::wstring output = L"Device not found: " + cfg.name + L"\n";
@@ -283,7 +287,7 @@ int MuteDiscordOnDevice(const DeviceConfig& cfg) {
         return 0;
     }
 
-    auto sessions = EnumerateDiscordSessions(cfg.name);
+    auto sessions = EnumerateDiscordSessions(cfg.name, pEnum);
     if (sessions.empty()) {
         #ifdef DEBUG
         OutputDebugStringA("Discord session not found on this device.\n");
@@ -291,18 +295,11 @@ int MuteDiscordOnDevice(const DeviceConfig& cfg) {
         return 2;
     }
 
-    // For StreamOnly: find Discord PIDs on *other* devices. A PID shared across devices
-    // is the main-audio process (Discord routes normal audio to SteelSeries + Voicemeeter).
-    // The PID that only exists on this device is the stream-only output.
-    std::vector<DWORD> otherPids;
-    if (cfg.filter == DeviceConfig::Filter::StreamOnly) {
-        otherPids = GetDiscordPidsOnOtherDevices(cfg.name);
-        if (otherPids.empty()) {
-            #ifdef DEBUG
-            OutputDebugStringA("StreamOnly: no Discord sessions on other devices yet; deferring.\n");
-            #endif
-            return 2; // retry-worthy; main-audio device may not have opened its session yet
-        }
+    if (cfg.filter == DeviceConfig::Filter::StreamOnly && otherPids.empty()) {
+        #ifdef DEBUG
+        OutputDebugStringA("StreamOnly: no Discord sessions on other devices yet; deferring.\n");
+        #endif
+        return 2; // retry-worthy; main-audio device may not have opened its session yet
     }
 
     bool muted = false;
@@ -342,16 +339,18 @@ int MuteDiscordOnDevice(const DeviceConfig& cfg) {
     return muted ? 1 : 2;
 }
 
-std::vector<std::wstring> EnumerateRenderDevices() {
+std::vector<std::wstring> EnumerateRenderDevices(IMMDeviceEnumerator* pEnumIn) {
     std::vector<std::wstring> result;
-    CComPtr<IMMDeviceEnumerator> pEnum;
+    CComPtr<IMMDeviceEnumerator> pLocalEnum;
+    IMMDeviceEnumerator* pEnum = pEnumIn;
+    if (!pEnum) {
+        if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+            IID_PPV_ARGS(&pLocalEnum)))) return result;
+        pEnum = pLocalEnum;
+    }
+
     CComPtr<IMMDeviceCollection> pDevices;
-
-    HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-        IID_PPV_ARGS(&pEnum));
-    if (FAILED(hr)) return result;
-
-    hr = pEnum->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &pDevices);
+    HRESULT hr = pEnum->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &pDevices);
     if (FAILED(hr)) return result;
 
     UINT count = 0;
@@ -448,8 +447,7 @@ bool SaveDevicesToFile(const std::wstring& filename, const std::vector<DeviceCon
 }
 
 int checkToMute() {
-    std::wstring configFile = L"devices.txt";
-    auto devices = LoadDevicesFromFile(configFile);
+    auto devices = LoadDevicesFromFile(L"devices.txt");
 
     if (devices.empty()) {
         #ifdef DEBUG
@@ -458,15 +456,33 @@ int checkToMute() {
         return 1;
     }
 
+    CComPtr<IMMDeviceEnumerator> pEnum;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+        IID_PPV_ARGS(&pEnum)))) return 1;
+
+    // Compute Discord PIDs per device once; derive "other PIDs" per device from this map.
+    auto buildOtherPids = [](const std::wstring& exclude,
+                             const std::unordered_map<std::wstring, std::vector<DWORD>>& byDevice) {
+        std::vector<DWORD> other;
+        for (const auto& kv : byDevice)
+            if (kv.first != exclude)
+                other.insert(other.end(), kv.second.begin(), kv.second.end());
+        return other;
+    };
+
+    auto pidsByDevice = BuildDiscordPidsByDevice(pEnum);
+
     int check = 0;
     for (int i = 0; i < (int)devices.size(); i++) {
-        check = MuteDiscordOnDevice(devices[i]);
+        auto otherPids = buildOtherPids(devices[i].name, pidsByDevice);
+        check = MuteDiscordOnDevice(devices[i], otherPids, pEnum);
         if (check == 2) {
             i = -1;
             #ifdef DEBUG
             OutputDebugStringA("Sleeping for 5 seconds\n");
             #endif
             Sleep(5000);
+            pidsByDevice = BuildDiscordPidsByDevice(pEnum);
         }
     }
     return 0;
@@ -522,6 +538,9 @@ void RunDiagnostic(HWND owner) {
         for (const auto& c : configs) deviceNames.push_back(c.name);
     }
 
+    // Build PID map once across all devices rather than re-enumerating per device.
+    auto pidsByDevice = BuildDiscordPidsByDevice();
+
     for (const auto& devName : deviceNames) {
         ss << L"Device: " << devName << L"\n";
         auto sessions = EnumerateDiscordSessions(devName);
@@ -530,7 +549,10 @@ void RunDiagnostic(HWND owner) {
             continue;
         }
         // PIDs of Discord sessions on *other* devices — shared = main audio, exclusive = stream.
-        auto otherPids = GetDiscordPidsOnOtherDevices(devName);
+        std::vector<DWORD> otherPids;
+        for (const auto& kv : pidsByDevice)
+            if (kv.first != devName)
+                otherPids.insert(otherPids.end(), kv.second.begin(), kv.second.end());
         for (const auto& s : sessions) {
             bool shared = std::find(otherPids.begin(), otherPids.end(), s.pid) != otherPids.end();
             ss << L"  Session #" << s.ordinalOnDevice << L"\n";
@@ -603,7 +625,7 @@ int main(int argc, char* argv[]) {
     IEnumWbemClassObject* pEnumerator = nullptr;
     hres = pSvc->ExecNotificationQuery(
         _bstr_t("WQL"),
-        _bstr_t("SELECT * FROM __InstanceCreationEvent WITHIN 1 WHERE TargetInstance ISA 'Win32_Process'"),
+        _bstr_t("SELECT * FROM __InstanceCreationEvent WITHIN 1 WHERE TargetInstance ISA 'Win32_Process' AND TargetInstance.Name = 'Discord.exe'"),
         WBEM_FLAG_RETURN_IMMEDIATELY | WBEM_FLAG_FORWARD_ONLY,
         NULL,
         &pEnumerator);
