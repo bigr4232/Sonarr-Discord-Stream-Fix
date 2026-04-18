@@ -365,7 +365,7 @@ int main(int argc, char* argv[]) {
         IWbemClassObject* pEvent = nullptr;
         ULONG uReturn = 0;
 
-        HRESULT hr = pEnumerator->Next(WBEM_INFINITE, 1, &pEvent, &uReturn);
+        HRESULT hr = pEnumerator->Next(500, 1, &pEvent, &uReturn);
 
         if (FAILED(hr) || uReturn == 0) {
             if (pEvent) pEvent->Release();
@@ -653,7 +653,7 @@ LRESULT CALLBACK TrayWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         if (LOWORD(wParam) == ID_TRAY_EXIT) {
             // Signal the worker thread to exit
             SetEvent(g_exitEvent);
-            PostQuitMessage(0);
+            DestroyWindow(hWnd);
         }
         else if (LOWORD(wParam) == ID_TRAY_CONFIGURE) {
             ShowConfigDialog(hWnd);
@@ -661,6 +661,7 @@ LRESULT CALLBACK TrayWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         break;
     case WM_DESTROY:
         RemoveTrayIcon(hWnd);
+        PostQuitMessage(0);
         break;
     }
     return DefWindowProc(hWnd, msg, wParam, lParam);
