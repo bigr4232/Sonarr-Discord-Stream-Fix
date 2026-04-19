@@ -728,13 +728,21 @@ DWORD WINAPI WorkerThreadProc(LPVOID) {
     return 0;
 }
 
+static HICON LoadTrayIcon() {
+    SHSTOCKICONINFO sii = { sizeof(SHSTOCKICONINFO) };
+    if (SUCCEEDED(SHGetStockIconInfo(SIID_AUDIOFILES, SHGSI_ICON | SHGSI_SMALLICON, &sii))) {
+        return sii.hIcon;
+    }
+    return LoadIcon(NULL, IDI_APPLICATION);
+}
+
 void AddTrayIcon(HWND hWnd) {
     g_nid.cbSize = sizeof(NOTIFYICONDATAA);
     g_nid.hWnd = hWnd;
     g_nid.uID = 1;
     g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
-    g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    g_nid.hIcon = LoadTrayIcon();
     lstrcpyA(g_nid.szTip, "MuteDiscordDevice v" MDD_VERSION_STRING);
     Shell_NotifyIconA(NIM_ADD, &g_nid);
 }
@@ -1341,6 +1349,7 @@ LRESULT CALLBACK TrayWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         break;
     case WM_DESTROY:
         RemoveTrayIcon(hWnd);
+        if (g_exitEvent) SetEvent(g_exitEvent);
         PostQuitMessage(0);
         break;
     }
