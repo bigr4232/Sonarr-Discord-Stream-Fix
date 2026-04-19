@@ -368,3 +368,8 @@ devices.txt
 # MuteDiscordDevice: Inno Setup installer build output
 /Output/
 *.iss.bak
+
+# MuteDiscordDevice: CMake build directories
+/build/
+/build-*/
+CMakeUserPresets.json
