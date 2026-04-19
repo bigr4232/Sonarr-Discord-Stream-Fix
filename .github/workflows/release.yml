@@ -41,9 +41,13 @@ jobs:
           }
           Write-Host "version.h matches tag: $headerVersion"
 
+      - name: Configure CMake
+        shell: pwsh
+        run: cmake -S . -B build-cmake -A x64
+
       - name: Build Release x64
         shell: pwsh
-        run: msbuild MuteDiscordDevice_Config.sln /p:Configuration=Release /p:Platform=x64 /m
+        run: cmake --build build-cmake --config Release
 
       - name: Install Inno Setup
         shell: pwsh

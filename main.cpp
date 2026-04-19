@@ -23,6 +23,7 @@
 #include <chrono>
 #include <ctime>
 #include "version.h"
+#include "resource.h"
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "wbemuuid.lib")
@@ -31,6 +32,7 @@
 #pragma comment(lib, "psapi.lib")
 
 #define WM_TRAYICON (WM_USER + 1)
+static UINT WM_TASKBARCREATED = 0;
 #define ID_TRAY_EXIT 1001
 #define ID_TRAY_CONFIGURE 1002
 #define ID_TRAY_DIAGNOSE 1003
@@ -729,6 +731,10 @@ DWORD WINAPI WorkerThreadProc(LPVOID) {
 }
 
 static HICON LoadTrayIcon() {
+    int cx = GetSystemMetrics(SM_CXSMICON);
+    int cy = GetSystemMetrics(SM_CYSMICON);
+    HICON hIcon = (HICON)LoadImageW(g_hInst, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, cx, cy, LR_DEFAULTCOLOR);
+    if (hIcon) return hIcon;
     SHSTOCKICONINFO sii = { sizeof(SHSTOCKICONINFO) };
     if (SUCCEEDED(SHGetStockIconInfo(SIID_AUDIOFILES, SHGSI_ICON | SHGSI_SMALLICON, &sii))) {
         return sii.hIcon;
@@ -744,7 +750,15 @@ void AddTrayIcon(HWND hWnd) {
     g_nid.uCallbackMessage = WM_TRAYICON;
     g_nid.hIcon = LoadTrayIcon();
     lstrcpyA(g_nid.szTip, "MuteDiscordDevice v" MDD_VERSION_STRING);
-    Shell_NotifyIconA(NIM_ADD, &g_nid);
+
+    // Retry NIM_ADD in case the shell tray isn't fully initialized (login,
+    // Explorer restart, or just-installed scenarios). Clear any ghost entry
+    // left by a prior process that crashed without calling NIM_DELETE.
+    for (int attempt = 0; attempt < 10; ++attempt) {
+        if (Shell_NotifyIconA(NIM_ADD, &g_nid)) return;
+        Shell_NotifyIconA(NIM_DELETE, &g_nid);
+        Sleep(500);
+    }
 }
 
 void RemoveTrayIcon(HWND) {
@@ -759,6 +773,7 @@ void ShowTrayMenu(HWND hWnd, POINT pt) {
     InsertMenuA(hMenu, -1, MF_BYPOSITION, ID_TRAY_EXIT, "Exit");
     SetForegroundWindow(hWnd);
     TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, 0, hWnd, NULL);
+    PostMessage(hWnd, WM_NULL, 0, 0);
     DestroyMenu(hMenu);
 }
 
@@ -1129,7 +1144,8 @@ static void RegisterSessionPickerClassOnce() {
     wc.hInstance = g_hInst;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hIcon = LoadIconW(g_hInst, MAKEINTRESOURCEW(IDI_APPICON));
+    if (!wc.hIcon) wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
     wc.lpszClassName = L"MuteDiscordSessionPickerClass";
     RegisterClassW(&wc);
     registered = true;
@@ -1327,6 +1343,10 @@ void ShowConfigDialog(HWND owner) {
 }
 
 LRESULT CALLBACK TrayWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (WM_TASKBARCREATED != 0 && msg == WM_TASKBARCREATED) {
+        AddTrayIcon(hWnd);
+        return 0;
+    }
     switch (msg) {
     case WM_TRAYICON:
         if (lParam == WM_RBUTTONUP) {
@@ -1347,6 +1367,18 @@ LRESULT CALLBACK TrayWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
             RunDiagnostic(hWnd);
         }
         break;
+    case WM_QUERYENDSESSION:
+        return TRUE;
+    case WM_ENDSESSION:
+        if (wParam) {
+            RemoveTrayIcon(hWnd);
+            if (g_exitEvent) SetEvent(g_exitEvent);
+            DestroyWindow(hWnd);
+        }
+        return 0;
+    case WM_CLOSE:
+        DestroyWindow(hWnd);
+        return 0;
     case WM_DESTROY:
         RemoveTrayIcon(hWnd);
         if (g_exitEvent) SetEvent(g_exitEvent);
@@ -1376,11 +1408,20 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     cwc.hInstance = hInstance;
     cwc.hCursor = LoadCursor(NULL, IDC_ARROW);
     cwc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    cwc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    cwc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APPICON));
+    if (!cwc.hIcon) cwc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
     cwc.lpszClassName = L"MuteDiscordConfigClass";
     RegisterClassW(&cwc);
 
-    g_hWnd = CreateWindowA(wc.lpszClassName, "", 0, 0, 0, 0, 0, NULL, NULL, hInstance, NULL);
+    // Title must be non-empty: on some Windows 11 builds, DefWindowProc returns
+    // FALSE from WM_NCCREATE when lpszName is "" and the window is never
+    // created. The string is not user-visible (the window is hidden).
+    g_hWnd = CreateWindowA(wc.lpszClassName, "MuteDiscordTray", 0, 0, 0, 0, 0, NULL, NULL, hInstance, NULL);
+
+    WM_TASKBARCREATED = RegisterWindowMessageW(L"TaskbarCreated");
+    // Allow the broadcast to reach us even when running unelevated alongside
+    // an elevated Explorer (UIPI blocks WM_USER+ range by default).
+    ChangeWindowMessageFilterEx(g_hWnd, WM_TASKBARCREATED, MSGFLT_ALLOW, NULL);
 
     AddTrayIcon(g_hWnd);
 
@@ -1395,7 +1436,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         DispatchMessage(&msg);
     }
 
-    WaitForSingleObject(g_workerThread, INFINITE);
+    // Give the worker a brief window to unblock from WMI / WASAPI calls.
+    // If it can't exit in time (e.g. Restart Manager is waiting on us during
+    // an installer upgrade), ExitProcess so we don't hang the installer.
+    if (WaitForSingleObject(g_workerThread, 2000) != WAIT_OBJECT_0) {
+        ExitProcess(0);
+    }
     CloseHandle(g_workerThread);
     CloseHandle(g_exitEvent);
 

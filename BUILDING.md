@@ -5,18 +5,42 @@
 **Prerequisites:**
 - Windows 10/11 x64
 - Visual Studio 2022 with the **Desktop development with C++** workload
+- [CMake 3.20+](https://cmake.org/download/) (only needed for the CMake build)
 - [Inno Setup 6](https://jrsoftware.org/isdl.php) (only needed to build the installer)
 
-**Build the exe:**
+### Option A — CMake (works from any shell)
+
+```
+cmake -S . -B build -A x64
+cmake --build build --config Release
+```
+
+Output: `build\Release\MuteDiscordDevice_Config.exe`.
+
+### Option B — MSBuild
+
+Open **"x64 Native Tools Command Prompt for VS 2022"** from the Start menu (a regular `cmd`/PowerShell/bash won't have `msbuild` on PATH), then from the repo root run:
+
 ```
 msbuild MuteDiscordDevice_Config.sln /p:Configuration=Release /p:Platform=x64
 ```
 
 Output: `x64\Release\MuteDiscordDevice_Config.exe`.
 
+### Option C — Visual Studio GUI
+
+Open `MuteDiscordDevice_Config.sln` in Visual Studio 2022, set the configuration to **Release / x64**, and Build Solution (Ctrl+Shift+B).
+
 **Build the installer:**
+
+The installer packages the exe from the CMake output (`build-cmake\Release\`), so run Option A first, then:
 ```
 iscc /DMyAppVersion=1.0.0 installer.iss
+```
+
+To package an MSBuild/Visual Studio build (`x64\Release\`) instead, override the build dir:
+```
+iscc /DMyAppVersion=1.0.0 /DBuildDir=x64\Release installer.iss
 ```
 
 Output: `Output\MuteDiscordDevice-Setup-1.0.0.exe`.

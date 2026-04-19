@@ -7,6 +7,12 @@
   #define MyAppVersion "0.0.0-dev"
 #endif
 
+; Build output directory. Defaults to the CMake release output; override with
+; /DBuildDir=x64\Release to package an MSBuild solution build instead.
+#ifndef BuildDir
+  #define BuildDir "build-cmake\Release"
+#endif
+
 #define MyAppName        "MuteDiscordDevice"
 #define MyAppExeName     "MuteDiscordDevice_Config.exe"
 #define MyAppPublisher   "MuteDiscordDevice"
@@ -37,6 +43,7 @@ OutputBaseFilename=MuteDiscordDevice-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=app.ico
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
@@ -46,11 +53,11 @@ RestartApplications=no
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "autostart"; Description: "Start {#MyAppName} automatically when Windows starts"; GroupDescription: "Startup:"; Flags: checkedonce
+Name: "autostart"; Description: "Start {#MyAppName} automatically when Windows starts"; GroupDescription: "Startup:"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
-Source: "x64\Release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#BuildDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
