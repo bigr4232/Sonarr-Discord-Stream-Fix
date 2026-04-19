@@ -303,6 +303,23 @@ int MuteDiscordOnDevice(const DeviceConfig& cfg, const std::vector<DWORD>& other
         return 2; // retry-worthy; main-audio device may not have opened its session yet
     }
 
+    // Ambiguity guard for StreamOnly: during reboots, Discord may transiently route
+    // every child process through multiple devices, making ALL sessions look shared.
+    // Only proceed when the heuristic picks exactly one — otherwise defer.
+    if (cfg.filter == DeviceConfig::Filter::StreamOnly && sessions.size() >= 2) {
+        int sharedCount = 0;
+        for (auto& s : sessions) {
+            if (std::find(otherPids.begin(), otherPids.end(), s.pid) != otherPids.end())
+                sharedCount++;
+        }
+        if (sharedCount != 1) {
+            #ifdef DEBUG
+            OutputDebugStringA("StreamOnly: ambiguous (not exactly one shared session); deferring.\n");
+            #endif
+            return 2;
+        }
+    }
+
     bool muted = false;
     bool anyFilterMatched = false;
     for (auto& s : sessions) {
@@ -324,9 +341,22 @@ int MuteDiscordOnDevice(const DeviceConfig& cfg, const std::vector<DWORD>& other
                 matches = std::find(otherPids.begin(), otherPids.end(), s.pid) != otherPids.end();
                 break;
         }
-        if (!matches) continue;
-        anyFilterMatched = true;
         CComQIPtr<ISimpleAudioVolume> pVol(s.pControl);
+        if (!matches) {
+            // Under StreamOnly, we own the mute state — un-mute non-matching sessions
+            // so a prior mis-mute (e.g. from a boot-race) self-heals on the next pass.
+            if (cfg.filter == DeviceConfig::Filter::StreamOnly && pVol) {
+                BOOL isMuted = FALSE;
+                if (SUCCEEDED(pVol->GetMute(&isMuted)) && isMuted) {
+                    pVol->SetMute(FALSE, nullptr);
+                    #ifdef DEBUG
+                    OutputDebugStringA("StreamOnly: un-muted a non-matching session (self-heal).\n");
+                    #endif
+                }
+            }
+            continue;
+        }
+        anyFilterMatched = true;
         if (pVol && SUCCEEDED(pVol->SetMute(TRUE, nullptr))) {
             muted = true;
             #ifdef DEBUG
