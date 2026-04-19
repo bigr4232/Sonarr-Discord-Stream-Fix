@@ -67,7 +67,7 @@ struct DeviceConfig {
     std::wstring name;
     // StreamOnly: mute only the Discord PID(s) that appear exclusively on this device
     // and not on any other render device. Reliably targets the stream audio session.
-    enum class Filter { All, ByFingerprint, ByOrdinal, StreamOnly } filter = Filter::StreamOnly;
+    enum class Filter { All, ByFingerprint, ByOrdinal, StreamOnly } filter = Filter::All;
     std::wstring fingerprint;
     int ordinal = -1;
     bool offline = false;
@@ -298,22 +298,37 @@ int MuteDiscordOnDevice(const DeviceConfig& cfg, const std::vector<DWORD>& other
         return 2;
     }
 
-    if (cfg.filter == DeviceConfig::Filter::StreamOnly && otherPids.empty()) {
-        #ifdef DEBUG
-        OutputDebugStringA("StreamOnly: no Discord sessions on other devices yet; deferring.\n");
-        #endif
-        return 2; // retry-worthy; main-audio device may not have opened its session yet
-    }
-
-    // Ambiguity guard for StreamOnly: during reboots, Discord may transiently route
-    // every child process through multiple devices, making ALL sessions look shared.
-    // Only proceed when the heuristic picks exactly one — otherwise defer.
-    if (cfg.filter == DeviceConfig::Filter::StreamOnly && sessions.size() >= 2) {
+    if (cfg.filter == DeviceConfig::Filter::StreamOnly) {
+        // Stream audio only appears on this device while a Discord stream is live:
+        // Discord then renders two sessions here (main voice + stream output).
+        // Fewer than two means the stream hasn't started, and muting the lone
+        // session would silence chat. Un-mute anything a prior pass muted so we
+        // self-heal when a stream ends.
+        if (sessions.size() < 2) {
+            for (auto& s : sessions) {
+                CComQIPtr<ISimpleAudioVolume> pVol(s.pControl);
+                BOOL isMuted = FALSE;
+                if (pVol && SUCCEEDED(pVol->GetMute(&isMuted)) && isMuted)
+                    pVol->SetMute(FALSE, nullptr);
+            }
+            #ifdef DEBUG
+            OutputDebugStringA("StreamOnly: <2 sessions on device; stream not live, deferring.\n");
+            #endif
+            return 2;
+        }
+        if (otherPids.empty()) {
+            #ifdef DEBUG
+            OutputDebugStringA("StreamOnly: no Discord sessions on other devices yet; deferring.\n");
+            #endif
+            return 2;
+        }
+        // Ambiguity guard: during reboots, Discord may transiently route every
+        // child process through multiple devices, making ALL sessions look shared.
+        // Only proceed when the heuristic picks exactly one — otherwise defer.
         int sharedCount = 0;
-        for (auto& s : sessions) {
+        for (auto& s : sessions)
             if (std::find(otherPids.begin(), otherPids.end(), s.pid) != otherPids.end())
                 sharedCount++;
-        }
         if (sharedCount != 1) {
             #ifdef DEBUG
             OutputDebugStringA("StreamOnly: ambiguous (not exactly one shared session); deferring.\n");
@@ -477,6 +492,40 @@ bool SaveDevicesToFile(const std::wstring& filename, const std::vector<DeviceCon
         return false;
     }
     return true;
+}
+
+// Match common SteelSeries devices most users will want muted on first install.
+// Substring match is case-insensitive so variants like "Headphones (2- Arctis
+// Nova Elite)" or "Arctis Nova Pro Wireless" are covered alongside the base
+// "Arctis Nova".
+static bool NameMatchesDefaultMute(const std::wstring& deviceName) {
+    std::wstring lower;
+    lower.reserve(deviceName.size());
+    for (wchar_t c : deviceName) {
+        if (c >= L'A' && c <= L'Z') c = (wchar_t)(c - L'A' + L'a');
+        lower.push_back(c);
+    }
+    if (lower.find(L"steelseries sonar - microphone") != std::wstring::npos) return true;
+    if (lower.find(L"arctis nova") != std::wstring::npos) return true;
+    return false;
+}
+
+// First-run only: seed devices.txt with sensible defaults (Sonar mic + Arctis
+// Nova headphones). Once the file exists we never touch it again, so any user
+// edits — including unchecking these defaults — are preserved across launches.
+static void SeedDefaultDevicesIfFirstRun() {
+    if (GetFileAttributesW(L"devices.txt") != INVALID_FILE_ATTRIBUTES) return;
+
+    std::vector<DeviceConfig> defaults;
+    for (const auto& name : EnumerateRenderDevices()) {
+        if (!NameMatchesDefaultMute(name)) continue;
+        DeviceConfig cfg;
+        cfg.name = name;
+        cfg.filter = DeviceConfig::Filter::All;
+        defaults.push_back(std::move(cfg));
+    }
+    // Always write the file, even when empty, so this seeding never re-runs.
+    SaveDevicesToFile(L"devices.txt", defaults);
 }
 
 int checkToMute() {
@@ -943,17 +992,18 @@ LRESULT CALLBACK SessionPickerWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         SendMessageW(hHeader, WM_SETFONT, (WPARAM)hFont, TRUE);
         y += 26;
 
-        s->hStreamRadio = CreateWindowW(L"BUTTON",
-            L"Stream only (auto-detect) — mute Discord child-process sessions, leave main audio alone  [Recommended]",
+        s->hAllRadio = CreateWindowW(L"BUTTON",
+            L"Mute all Discord sessions on this device  [Recommended]",
             WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON | WS_GROUP,
-            10, y, 660, 20, hWnd, (HMENU)(UINT_PTR)IDC_SESSION_STREAM, g_hInst, NULL);
-        SendMessageW(s->hStreamRadio, WM_SETFONT, (WPARAM)hFont, TRUE);
-        y += 26;
-
-        s->hAllRadio = CreateWindowW(L"BUTTON", L"Mute all Discord sessions (original behavior)",
-            WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
             10, y, 660, 20, hWnd, (HMENU)(UINT_PTR)IDC_SESSION_ALL, g_hInst, NULL);
         SendMessageW(s->hAllRadio, WM_SETFONT, (WPARAM)hFont, TRUE);
+        y += 26;
+
+        s->hStreamRadio = CreateWindowW(L"BUTTON",
+            L"Stream only (auto-detect) — only mutes when a Discord stream is live",
+            WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
+            10, y, 660, 20, hWnd, (HMENU)(UINT_PTR)IDC_SESSION_STREAM, g_hInst, NULL);
+        SendMessageW(s->hStreamRadio, WM_SETFONT, (WPARAM)hFont, TRUE);
         y += 26;
 
         if (s->sessions.empty()) {
@@ -1049,7 +1099,7 @@ LRESULT CALLBACK SessionPickerWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
                 break;
             }
         } else {
-            SendMessageW(s->hStreamRadio, BM_SETCHECK, BST_CHECKED, 0);
+            SendMessageW(s->hAllRadio, BM_SETCHECK, BST_CHECKED, 0);
         }
 
         if (s->hOwner) EnableWindow(s->hOwner, FALSE);
@@ -1424,6 +1474,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     ChangeWindowMessageFilterEx(g_hWnd, WM_TASKBARCREATED, MSGFLT_ALLOW, NULL);
 
     AddTrayIcon(g_hWnd);
+
+    SeedDefaultDevicesIfFirstRun();
 
     g_workerThread = CreateThread(NULL, 0, WorkerThreadProc, NULL, 0, NULL);
 
