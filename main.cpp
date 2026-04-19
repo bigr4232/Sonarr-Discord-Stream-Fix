@@ -22,6 +22,7 @@
 #include <codecvt>
 #include <chrono>
 #include <ctime>
+#include "version.h"
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "wbemuuid.lib")
@@ -704,7 +705,7 @@ void AddTrayIcon(HWND hWnd) {
     g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
     g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-    lstrcpyA(g_nid.szTip, "MuteDiscordDevice_Config");
+    lstrcpyA(g_nid.szTip, "MuteDiscordDevice v" MDD_VERSION_STRING);
     Shell_NotifyIconA(NIM_ADD, &g_nid);
 }
 

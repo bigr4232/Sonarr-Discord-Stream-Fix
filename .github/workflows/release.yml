@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Extract version from tag
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v',''
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Release version: $version"
+
+      - name: Verify version.h matches tag
+        shell: pwsh
+        run: |
+          $header = Get-Content version.h -Raw
+          if ($header -notmatch 'MDD_VERSION_STRING\s+"([^"]+)"') {
+            Write-Error "Could not find MDD_VERSION_STRING in version.h"
+            exit 1
+          }
+          $headerVersion = $Matches[1]
+          if ($headerVersion -ne $env:VERSION) {
+            Write-Error "version.h has $headerVersion but tag is $env:VERSION - bump version.h before tagging."
+            exit 1
+          }
+          Write-Host "version.h matches tag: $headerVersion"
+
+      - name: Build Release x64
+        shell: pwsh
+        run: msbuild MuteDiscordDevice_Config.sln /p:Configuration=Release /p:Platform=x64 /m
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile installer
+        shell: pwsh
+        run: iscc /DMyAppVersion=$env:VERSION installer.iss
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Output/MuteDiscordDevice-Setup-*.exe
+          generate_release_notes: true

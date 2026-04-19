@@ -361,3 +361,10 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# MuteDiscordDevice: user-specific runtime config (created by the app on first run)
+devices.txt
+
+# MuteDiscordDevice: Inno Setup installer build output
+/Output/
+*.iss.bak
