@@ -1,11 +1,9 @@
 ; MuteDiscordDevice installer (Inno Setup 6)
 ;
-; Build locally:  iscc /DMyAppVersion=1.0.0 installer.iss
+; Build locally:  iscc installer.iss
 ; CI builds from .github/workflows/release.yml on v*.*.* tag push.
 
-#ifndef MyAppVersion
-  #define MyAppVersion "0.0.0-dev"
-#endif
+#define MyAppExeName     "MuteDiscordDevice_Config.exe"
 
 ; Build output directory. Defaults to the CMake release output; override with
 ; /DBuildDir=x64\Release to package an MSBuild solution build instead.
@@ -13,8 +11,11 @@
   #define BuildDir "build-cmake\Release"
 #endif
 
+#ifndef MyAppVersion
+  #define MyAppVersion GetFileProductVersion(AddBackslash(BuildDir) + MyAppExeName)
+#endif
+
 #define MyAppName        "MuteDiscordDevice"
-#define MyAppExeName     "MuteDiscordDevice_Config.exe"
 #define MyAppPublisher   "MuteDiscordDevice"
 #define MyAppURL         "https://github.com/"
 #define MyAppRunRegKey   "Software\Microsoft\Windows\CurrentVersion\Run"
@@ -76,3 +77,38 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 ; Note: devices.txt is intentionally NOT listed in [Files] or [UninstallDelete].
 ; The app creates it in {app} on first configuration; leaving it through an
 ; uninstall means a reinstall finds the user's previous configuration.
+
+[Code]
+function CloseRunningApp(): Boolean;
+var
+  ExePath: string;
+  ResultCode: Integer;
+begin
+  Result := True;
+  ExePath := ExpandConstant('{app}\{#MyAppExeName}');
+  if not FileExists(ExePath) then
+    exit;
+
+  if Exec(ExePath, '--shutdown', '', SW_HIDE, ewNoWait, ResultCode) then
+    Sleep(1500);
+
+  if not Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM "{#MyAppExeName}" /T /F',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    Result := False;
+    exit;
+  end;
+
+  Result := (ResultCode = 0) or (ResultCode = 128);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  NeedsRestart := False;
+  Result := '';
+
+  if not CloseRunningApp() then
+    Result :=
+      'Setup could not close MuteDiscordDevice automatically.' + #13#10#13#10 +
+      'Please exit it from the tray icon and run setup again.';
+end;
