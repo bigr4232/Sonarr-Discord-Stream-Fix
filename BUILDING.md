@@ -33,17 +33,17 @@ Open `MuteDiscordDevice_Config.sln` in Visual Studio 2022, set the configuration
 
 **Build the installer:**
 
-The installer packages the exe from the CMake output (`build-cmake\Release\`), so run Option A first, then:
+The installer reads the app version from the built exe automatically. It packages the exe from the CMake output (`build-cmake\Release\`), so run Option A first, then:
 ```
-iscc /DMyAppVersion=1.0.0 installer.iss
+iscc installer.iss
 ```
 
 To package an MSBuild/Visual Studio build (`x64\Release\`) instead, override the build dir:
 ```
-iscc /DMyAppVersion=1.0.0 /DBuildDir=x64\Release installer.iss
+iscc /DBuildDir=x64\Release installer.iss
 ```
 
-Output: `Output\MuteDiscordDevice-Setup-1.0.0.exe`.
+Output: `Output\MuteDiscordDevice-Setup-<app version>.exe`.
 
 ## Release process (maintainers)
 
