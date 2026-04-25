@@ -130,6 +130,7 @@ LRESULT CALLBACK ConfigWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL,
             10, 10, rc.right - 20, rc.bottom - 60,
             hWnd, (HMENU)IDC_CONFIG_LIST, g_hInst, NULL);
+        if (!s->hList) { delete s; SetWindowLongPtrW(hWnd, GWLP_USERDATA, 0); return -1; }
         ListView_SetExtendedListViewStyle(s->hList,
             LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT);
 
@@ -157,6 +158,12 @@ LRESULT CALLBACK ConfigWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             WS_CHILD | WS_VISIBLE,
             rc.right - 90, rc.bottom - 40, 80, 28,
             hWnd, (HMENU)IDC_CONFIG_CANCEL, g_hInst, NULL);
+
+        if (!s->hSessionBtn || !s->hOk || !s->hCancel) {
+            delete s;
+            SetWindowLongPtrW(hWnd, GWLP_USERDATA, 0);
+            return -1;
+        }
 
         HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
         SendMessageW(s->hList, WM_SETFONT, (WPARAM)hFont, TRUE);
