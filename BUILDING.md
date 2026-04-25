@@ -45,6 +45,31 @@ iscc /DBuildDir=x64\Release installer.iss
 
 Output: `Output\MuteDiscordDevice-Setup-<app version>.exe`.
 
+## Running tests
+
+The test suite covers all pure (side-effect-free) functions extracted from `main.cpp` into
+`mdd_pure.cpp`. It requires no special setup beyond the normal build prerequisites.
+
+```
+cmake -S . -B build -A x64
+cmake --build build --config Release
+cd build && ctest -C Release --output-on-failure
+```
+
+Or run the test binary directly:
+```
+build\tests\Release\MuteDiscordDeviceTests.exe
+```
+
+Tests cover:
+- **Session fingerprint extraction** - stability across Discord app version updates
+- **Config serialization round-trips** - parse/serialize for all filter modes
+- **Device name matching** - default mute targets (Sonar mic, Arctis Nova)
+- **Utility functions** - HRESULT formatting, GUID formatting, device ID packing
+- **Filter display strings** - human-readable summaries for each filter mode
+- **DeviceConfig defaults** - struct initialization and copy semantics
+- **File I/O round-trips** - route target and config file persistence
+
 ## Release process (maintainers)
 
 1. Bump the version in `version.h` (three macros + `MDD_VERSION_STRING`).

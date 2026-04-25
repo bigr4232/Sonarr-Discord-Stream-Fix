@@ -24,6 +24,7 @@
 #include <ctime>
 #include "version.h"
 #include "resource.h"
+#include "mdd_pure.h"
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "wbemuuid.lib")
@@ -162,11 +163,7 @@ static bool HasCommandLineArg(int argc, char* argv[], const char* arg) {
     return false;
 }
 
-static std::wstring HResultToWString(HRESULT hr) {
-    wchar_t buf[32] = {};
-    swprintf_s(buf, L"0x%08X", static_cast<unsigned int>(hr));
-    return buf;
-}
+// HResultToWString moved to mdd_pure.cpp
 
 static void AppendRouteLog(const std::wstring& line) {
     std::wofstream out(L"route-debug.log", std::ios::app);
@@ -204,16 +201,7 @@ static std::wstring PackPolicyConfigDeviceId(const std::wstring& deviceId, EData
 }
 
 // ---------- Data model ----------
-
-struct DeviceConfig {
-    std::wstring name;
-    // StreamOnly: mute only the Discord PID(s) that appear exclusively on this device
-    // and not on any other render device. Reliably targets the stream audio session.
-    enum class Filter { All, ByFingerprint, ByOrdinal, StreamOnly } filter = Filter::All;
-    std::wstring fingerprint;
-    int ordinal = -1;
-    bool offline = false;
-};
+// DeviceConfig is now defined in mdd_pure.h (included above).
 
 struct DiscordSession {
     CComPtr<IAudioSessionControl> pControl;
@@ -277,11 +265,7 @@ std::wstring GetProcessImagePath(DWORD pid) {
     return buf;
 }
 
-static std::wstring ToLowerCopy(const std::wstring& value) {
-    std::wstring lower = value;
-    for (auto& c : lower) c = towlower(c);
-    return lower;
-}
+// ToLowerCopy moved to mdd_pure.cpp
 
 static void RemoveDiscordPersistedRenderEndpoints(const std::vector<std::wstring>& processPaths) {
     if (processPaths.empty()) return;
@@ -353,30 +337,7 @@ static void RemoveDiscordPersistedRenderEndpoints(const std::vector<std::wstring
     RegCloseKey(hKey);
 }
 
-// SessionIdentifier format (typical):
-//   {0.0.0.00000000}.{<mmdevice-guid>}|\Device\HarddiskVolumeN\...\app-1.2.3\Discord.exe%b{<session-guid>}%b<flags>
-// The app-version path segment rotates on Discord updates, so strip the path and keep only the
-// trailing GUID + flags tail, which should be stable across updates for a given session type.
-std::wstring StableSessionFingerprint(const std::wstring& sid) {
-    if (sid.empty()) return L"";
-    size_t lastPct = sid.rfind(L"%b");
-    std::wstring tail;
-    if (lastPct != std::wstring::npos) {
-        // Walk backwards to find the previous %b so we capture {guid}%b<flags>
-        size_t prev = sid.rfind(L"%b", lastPct > 0 ? lastPct - 1 : 0);
-        if (prev != std::wstring::npos && prev < lastPct) {
-            tail = sid.substr(prev + 2);
-        } else {
-            tail = sid.substr(lastPct + 2);
-        }
-    }
-    if (tail.empty()) {
-        // Fallback: take substring after last '|' if present
-        size_t bar = sid.rfind(L'|');
-        tail = (bar == std::wstring::npos) ? sid : sid.substr(bar + 1);
-    }
-    return tail;
-}
+// StableSessionFingerprint moved to mdd_pure.cpp
 
 static CComPtr<IMMDevice> FindDeviceByName(const std::wstring& deviceName, IMMDeviceEnumerator* pEnumIn = nullptr) {
     CComPtr<IMMDeviceEnumerator> pLocalEnum;
@@ -668,48 +629,7 @@ std::vector<std::wstring> EnumerateRenderDevices(IMMDeviceEnumerator* pEnumIn) {
 
 // ---------- Config I/O ----------
 
-static DeviceConfig ParseDeviceConfigLine(const std::wstring& rawLine) {
-    std::wstring line = rawLine;
-    if (!line.empty() && line.back() == L'\r') line.pop_back();
-
-    DeviceConfig cfg;
-    size_t bar = line.find(L'|');
-    if (bar == std::wstring::npos) {
-        cfg.name = line;
-        // Bare lines from old installs: mute all (backwards compat)
-        cfg.filter = DeviceConfig::Filter::All;
-        return cfg;
-    }
-    cfg.name = line.substr(0, bar);
-    std::wstring spec = line.substr(bar + 1);
-    if (spec == L"stream") {
-        cfg.filter = DeviceConfig::Filter::StreamOnly;
-    } else if (spec.rfind(L"sid:", 0) == 0) {
-        cfg.filter = DeviceConfig::Filter::ByFingerprint;
-        cfg.fingerprint = spec.substr(4);
-    } else if (spec.rfind(L"ord:", 0) == 0) {
-        cfg.filter = DeviceConfig::Filter::ByOrdinal;
-        try { cfg.ordinal = std::stoi(spec.substr(4)); } catch (...) { cfg.ordinal = -1; }
-    }
-    return cfg;
-}
-
-static std::wstring SerializeDeviceConfig(const DeviceConfig& cfg) {
-    std::wstring line = cfg.name;
-    switch (cfg.filter) {
-        case DeviceConfig::Filter::StreamOnly:
-            line += L"|stream";
-            break;
-        case DeviceConfig::Filter::ByFingerprint:
-            if (!cfg.fingerprint.empty()) line += L"|sid:" + cfg.fingerprint;
-            break;
-        case DeviceConfig::Filter::ByOrdinal:
-            if (cfg.ordinal >= 0) line += L"|ord:" + std::to_wstring(cfg.ordinal);
-            break;
-        default: break;
-    }
-    return line;
-}
+// ParseDeviceConfigLine and SerializeDeviceConfig moved to mdd_pure.cpp
 
 std::vector<DeviceConfig> LoadDevicesFromFile(const std::wstring& filename) {
     std::vector<DeviceConfig> result;
@@ -740,21 +660,7 @@ bool SaveDevicesToFile(const std::wstring& filename, const std::vector<DeviceCon
     return true;
 }
 
-// Match common SteelSeries devices most users will want muted on first install.
-// Substring match is case-insensitive so variants like "Headphones (2- Arctis
-// Nova Elite)" or "Arctis Nova Pro Wireless" are covered alongside the base
-// "Arctis Nova".
-static bool NameMatchesDefaultMute(const std::wstring& deviceName) {
-    std::wstring lower;
-    lower.reserve(deviceName.size());
-    for (wchar_t c : deviceName) {
-        if (c >= L'A' && c <= L'Z') c = (wchar_t)(c - L'A' + L'a');
-        lower.push_back(c);
-    }
-    if (lower.find(L"steelseries sonar - microphone") != std::wstring::npos) return true;
-    if (lower.find(L"arctis nova") != std::wstring::npos) return true;
-    return false;
-}
+// NameMatchesDefaultMute moved to mdd_pure.cpp
 
 // First-run only: seed devices.txt with sensible defaults (Sonar mic + Arctis
 // Nova headphones). Once the file exists we never touch it again, so any user
@@ -1053,14 +959,7 @@ static void RouteDiscordAudioOutput(const std::wstring& targetDeviceFriendlyName
 
 // ---------- Diagnostic ----------
 
-static std::wstring GuidToWString(const GUID& g) {
-    wchar_t buf[64];
-    swprintf_s(buf, L"{%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}",
-        g.Data1, g.Data2, g.Data3,
-        g.Data4[0], g.Data4[1], g.Data4[2], g.Data4[3],
-        g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7]);
-    return buf;
-}
+// GuidToWString moved to mdd_pure.cpp
 
 void RunDiagnostic(HWND owner) {
     std::wstringstream ss;
@@ -1300,22 +1199,7 @@ struct ConfigState {
     HWND hOwner;
 };
 
-static std::wstring FilterSummary(const DeviceConfig& cfg) {
-    switch (cfg.filter) {
-        case DeviceConfig::Filter::StreamOnly:
-            return L"Stream only (auto)";
-        case DeviceConfig::Filter::All:
-            return L"All Discord sessions";
-        case DeviceConfig::Filter::ByFingerprint: {
-            std::wstring s = L"Specific: ";
-            s += (cfg.fingerprint.size() > 20 ? cfg.fingerprint.substr(0, 20) + L"..." : cfg.fingerprint);
-            return s;
-        }
-        case DeviceConfig::Filter::ByOrdinal:
-            return L"Ordinal #" + std::to_wstring(cfg.ordinal);
-    }
-    return L"";
-}
+// FilterSummary moved to mdd_pure.cpp
 
 static void DeleteRowConfigs(HWND hList) {
     int count = ListView_GetItemCount(hList);
