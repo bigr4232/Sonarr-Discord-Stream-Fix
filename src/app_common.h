@@ -16,6 +16,7 @@
 #include <vector>
 #include <unordered_map>
 #include <unordered_set>
+#include <atomic>
 
 #include "../mdd_pure.h"
 #include "../version.h"
@@ -81,7 +82,7 @@ extern NOTIFYICONDATAA g_nid;
 extern HANDLE g_workerThread;
 extern HANDLE g_exitEvent;
 extern HWND g_hConfigWnd;
-extern bool debugMode;
+extern std::atomic<bool> debugMode;
 
 /// Cached IMMDeviceEnumerator to avoid repeated CoCreateInstance overhead.
 /// Returns a shared enumerator lazily initialized on first call.

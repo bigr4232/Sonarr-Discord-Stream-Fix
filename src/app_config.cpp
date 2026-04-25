@@ -124,10 +124,6 @@ int checkToMute() {
     auto devices = LoadDevicesFromFile(L"devices.txt");
     if (devices.empty()) return 0;
 
-    // Fix 3.3: build a filter set of configured device names
-    std::unordered_set<std::wstring> configuredNames;
-    for (const auto& d : devices) configuredNames.insert(d.name);
-
     auto buildOtherPids = [](const std::wstring& exclude,
                               const std::unordered_map<std::wstring, std::vector<DWORD>>& byDevice) {
         std::vector<DWORD> other;
@@ -137,7 +133,7 @@ int checkToMute() {
         return other;
     };
 
-    auto pidsByDevice = BuildDiscordPidsByDevice(pEnum, &configuredNames);
+    auto pidsByDevice = BuildDiscordPidsByDevice(pEnum, nullptr);
 
     static const int MAX_RETRIES = 5;
     static const DWORD WAIT_MS = 1000;
@@ -174,7 +170,7 @@ int checkToMute() {
                 return 0;
             }
             i = -1;
-            pidsByDevice = BuildDiscordPidsByDevice(pEnum, &configuredNames);
+            pidsByDevice = BuildDiscordPidsByDevice(pEnum, nullptr);
         }
     }
     return 0;

@@ -74,6 +74,16 @@ static void RemoveDiscordPersistedRenderEndpoints(const std::vector<std::wstring
         return;
     }
 
+    // Fix 3.4: Cache of known Discord endpoint keys to avoid full enumeration each time.
+    static std::vector<std::wstring> s_cachedDiscordKeys;
+
+    // First, try deleting from cached keys (fast path).
+    for (const auto& keyName : s_cachedDiscordKeys) {
+        RegDeleteTreeW(hKey, keyName.c_str());
+    }
+    s_cachedDiscordKeys.clear();
+
+    // Now enumerate to discover new Discord keys (only needed when paths change or new endpoints appear).
     std::vector<std::wstring> keysToDelete;
     DWORD index = 0;
     for (;;) {
@@ -104,6 +114,7 @@ static void RemoveDiscordPersistedRenderEndpoints(const std::vector<std::wstring
                 defaultLower.find(L"capture") == std::wstring::npos &&
                 defaultLower.find(L"microphone") == std::wstring::npos) {
                 keysToDelete.push_back(keyName);
+                s_cachedDiscordKeys.push_back(keyName);  // Cache for next call
             }
         }
         index++;

@@ -9,7 +9,7 @@ NOTIFYICONDATAA g_nid = { 0 };
 HANDLE g_workerThread = nullptr;
 HANDLE g_exitEvent = nullptr;
 HWND g_hConfigWnd = nullptr;
-bool debugMode = false;
+std::atomic<bool> debugMode{false};
 
 // ---------- Cached device enumerator (Fix 3.1) ----------
 
