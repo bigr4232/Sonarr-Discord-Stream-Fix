@@ -7,6 +7,9 @@ struct ConfigState {
     HWND hCancel;
     HWND hSessionBtn;
     HWND hOwner;
+    // Row configs stored in a vector indexed by ListView row number.
+    // lParam stores the row index (as LPARAM) instead of raw heap pointers.
+    std::vector<DeviceConfig> rowConfigs;
 };
 
 bool ShouldDisableOwnerWindow(HWND owner) {
@@ -20,21 +23,17 @@ void RestoreOwnerWindow(HWND owner) {
     SetForegroundWindow(owner);
 }
 
-static void DeleteRowConfigs(HWND hList) {
-    int count = ListView_GetItemCount(hList);
-    for (int i = 0; i < count; i++) {
-        LVITEMW item = { 0 };
-        item.iItem = i;
-        item.mask = LVIF_PARAM;
-        if (ListView_GetItem(hList, &item) && item.lParam) {
-            delete reinterpret_cast<DeviceConfig*>(item.lParam);
-        }
-    }
-}
-
 static void PopulateConfigList(HWND hList) {
-    DeleteRowConfigs(hList);
+    ConfigState* state = reinterpret_cast<ConfigState*>(GetWindowLongPtrW(hList, GWLP_USERDATA));
+    // The list view's parent owns the state; get it from the parent window.
+    HWND hParent = GetParent(hList);
+    if (hParent) {
+        state = reinterpret_cast<ConfigState*>(GetWindowLongPtrW(hParent, GWLP_USERDATA));
+    }
+    if (!state) return;
+
     ListView_DeleteAllItems(hList);
+    state->rowConfigs.clear();
 
     std::vector<std::wstring> enumerated = EnumerateRenderDevices();
     std::vector<DeviceConfig> configured = LoadDevicesFromFile(L"devices.txt");
@@ -46,31 +45,32 @@ static void PopulateConfigList(HWND hList) {
 
     int row = 0;
     for (const auto& name : enumerated) {
+        DeviceConfig cfg;
         DeviceConfig* existing = findConfigured(name);
-        DeviceConfig* rowCfg = new DeviceConfig();
-        if (existing) *rowCfg = *existing;
-        else rowCfg->name = name;
-        rowCfg->offline = false;
+        if (existing) cfg = *existing;
+        else cfg.name = name;
+        cfg.offline = false;
 
         LVITEMW item = { 0 };
         item.mask = LVIF_TEXT | LVIF_PARAM;
         item.iItem = row;
         item.iSubItem = 0;
         item.pszText = const_cast<LPWSTR>(name.c_str());
-        item.lParam = reinterpret_cast<LPARAM>(rowCfg);
+        item.lParam = row;  // Store row index, not pointer
         ListView_InsertItem(hList, &item);
 
-        std::wstring summary = FilterSummary(*rowCfg);
+        std::wstring summary = FilterSummary(cfg);
         ListView_SetItemText(hList, row, 1, const_cast<LPWSTR>(summary.c_str()));
 
         ListView_SetCheckState(hList, row, existing != nullptr);
+        state->rowConfigs.push_back(std::move(cfg));
         row++;
     }
 
     for (const auto& c : configured) {
         if (std::find(enumerated.begin(), enumerated.end(), c.name) != enumerated.end()) continue;
-        DeviceConfig* rowCfg = new DeviceConfig(c);
-        rowCfg->offline = true;
+        DeviceConfig cfg = c;
+        cfg.offline = true;
         std::wstring display = c.name + L" (offline)";
 
         LVITEMW item = { 0 };
@@ -78,39 +78,39 @@ static void PopulateConfigList(HWND hList) {
         item.iItem = row;
         item.iSubItem = 0;
         item.pszText = const_cast<LPWSTR>(display.c_str());
-        item.lParam = reinterpret_cast<LPARAM>(rowCfg);
+        item.lParam = row;  // Store row index, not pointer
         ListView_InsertItem(hList, &item);
 
-        std::wstring summary = FilterSummary(*rowCfg);
+        std::wstring summary = FilterSummary(cfg);
         ListView_SetItemText(hList, row, 1, const_cast<LPWSTR>(summary.c_str()));
 
         ListView_SetCheckState(hList, row, TRUE);
+        state->rowConfigs.push_back(std::move(cfg));
         row++;
     }
 }
 
 static std::vector<DeviceConfig> CollectCheckedConfigs(HWND hList) {
+    HWND hParent = GetParent(hList);
+    ConfigState* state = hParent ? reinterpret_cast<ConfigState*>(GetWindowLongPtrW(hParent, GWLP_USERDATA)) : nullptr;
+    if (!state) return {};
+
     std::vector<DeviceConfig> result;
     int count = ListView_GetItemCount(hList);
     for (int i = 0; i < count; i++) {
         if (!ListView_GetCheckState(hList, i)) continue;
-        LVITEMW item = { 0 };
-        item.iItem = i;
-        item.mask = LVIF_PARAM;
-        ListView_GetItem(hList, &item);
-        if (!item.lParam) continue;
-        DeviceConfig* cfg = reinterpret_cast<DeviceConfig*>(item.lParam);
-        result.push_back(*cfg);
+        if (i >= 0 && i < (int)state->rowConfigs.size()) {
+            result.push_back(state->rowConfigs[i]);
+        }
     }
     return result;
 }
 
 static DeviceConfig* GetRowConfig(HWND hList, int row) {
-    LVITEMW item = { 0 };
-    item.iItem = row;
-    item.mask = LVIF_PARAM;
-    if (!ListView_GetItem(hList, &item)) return nullptr;
-    return reinterpret_cast<DeviceConfig*>(item.lParam);
+    HWND hParent = GetParent(hList);
+    ConfigState* state = hParent ? reinterpret_cast<ConfigState*>(GetWindowLongPtrW(hParent, GWLP_USERDATA)) : nullptr;
+    if (!state || row < 0 || row >= (int)state->rowConfigs.size()) return nullptr;
+    return &state->rowConfigs[row];
 }
 
 LRESULT CALLBACK ConfigWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -257,7 +257,7 @@ LRESULT CALLBACK ConfigWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         return 0;
     case WM_DESTROY:
         if (state) {
-            DeleteRowConfigs(state->hList);
+            // rowConfigs vector is automatically cleaned up by std::vector destructor.
             RestoreOwnerWindow(state->hOwner);
             delete state;
             SetWindowLongPtrW(hWnd, GWLP_USERDATA, 0);
