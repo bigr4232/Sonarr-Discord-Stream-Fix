@@ -232,7 +232,6 @@ LRESULT CALLBACK SessionPickerWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
             delete st;
         }
         SetWindowLongPtrW(hWnd, GWLP_USERDATA, 0);
-        PostMessage(hWnd, WM_NULL, 0, 0);
         return 0;
     }
     return DefWindowProcW(hWnd, msg, wParam, lParam);
