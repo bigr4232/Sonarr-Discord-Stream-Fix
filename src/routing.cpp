@@ -51,6 +51,21 @@ static GUID ResolvePolicyConfigFactoryIid() {
     return IID_IAudioPolicyConfigFactory_Downlevel;
 }
 
+// Fix 5.3: Validate registry key names before deletion.
+// Keys under PolicyConfig\PropertyStore are GUIDs like {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}.
+static bool IsValidPolicyKey(const std::wstring& key) {
+    if (key.size() < 38 || key.front() != L'{' || key.back() != L'}') return false;
+    auto pos = key.find(L'-');
+    if (pos != 9) return false;
+    pos = key.find(L'-', pos + 1);
+    if (pos != 14) return false;
+    pos = key.find(L'-', pos + 1);
+    if (pos != 19) return false;
+    pos = key.find(L'-', pos + 1);
+    if (pos != 24) return false;
+    return true;
+}
+
 static void RemoveDiscordPersistedRenderEndpoints(const std::vector<std::wstring>& processPaths) {
     if (processPaths.empty()) return;
 
@@ -79,7 +94,9 @@ static void RemoveDiscordPersistedRenderEndpoints(const std::vector<std::wstring
 
     // First, try deleting from cached keys (fast path).
     for (const auto& keyName : s_cachedDiscordKeys) {
-        RegDeleteTreeW(hKey, keyName.c_str());
+        if (IsValidPolicyKey(keyName)) {
+            RegDeleteTreeW(hKey, keyName.c_str());
+        }
     }
     s_cachedDiscordKeys.clear();
 
@@ -253,6 +270,17 @@ void RouteDiscordAudioOutput(const std::wstring& targetDeviceFriendlyName, IMMDe
             auto getPersistedDefaultAudioEndpoint =
                 reinterpret_cast<HRESULT (WINAPI*)(void*, UINT, EDataFlow, ERole, HSTRING*)>(
                     vtable[POLICY_CONFIG_INDEX_GET_PERSISTED_DEFAULT_ENDPOINT]);
+
+            // Fix 5.1: Runtime validation of undocumented API vtable pointers.
+            if (!releaseFactory || !setPersistedDefaultAudioEndpoint || !getPersistedDefaultAudioEndpoint) {
+                AppendRouteLog(L"WARNING: Undocumented API vtable indexes are invalid for this Windows build. "
+                               L"Routing will not work. Please report your Windows build number (" +
+                               std::to_wstring(GetWindowsBuildNumber()) + L") to the project maintainers.");
+                releaseFactory(pConfig);
+                if (needUninit && fpRoUninitialize) fpRoUninitialize();
+                FreeLibrary(hComBase);
+                return;
+            }
 
             HSTRING deviceIdHStr = nullptr;
             HRESULT hrCreateDevice = fpWindowsCreateString(
