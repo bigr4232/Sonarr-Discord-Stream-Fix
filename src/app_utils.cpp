@@ -48,11 +48,11 @@ bool RequestRunningInstanceShutdown() {
 
     bool signaled = false;
 
-    HWND hTray = FindWindowA(kTrayClassName, nullptr);
+    HWND hTray = FindWindowW(kTrayClassName, nullptr);
     while (hTray) {
         PostMessageW(hTray, shutdownMessage, 0, 0);
         signaled = true;
-        hTray = FindWindowExA(nullptr, hTray, kTrayClassName, nullptr);
+        hTray = FindWindowExW(nullptr, hTray, kTrayClassName, nullptr);
     }
 
     HWND hConfig = FindWindowW(kConfigClassName, nullptr);

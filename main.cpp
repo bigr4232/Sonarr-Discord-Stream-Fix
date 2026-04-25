@@ -20,11 +20,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_LISTVIEW_CLASSES | ICC_STANDARD_CLASSES };
     InitCommonControlsEx(&icc);
 
-    WNDCLASSA wc = { 0 };
+    WNDCLASSW wc = { 0 };
     wc.lpfnWndProc = TrayWndProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = kTrayClassName;
-    RegisterClassA(&wc);
+    RegisterClassW(&wc);
 
     WNDCLASSW cwc = { 0 };
     cwc.lpfnWndProc = ConfigWndProc;
@@ -46,7 +46,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     // Title must be non-empty: on some Windows 11 builds, DefWindowProc returns
     // FALSE from WM_NCCREATE when lpszName is "" and the window is never
     // created. The string is not user-visible (the window is hidden).
-    g_hWnd = CreateWindowA(wc.lpszClassName, "MuteDiscordTray", 0, 0, 0, 0, 0, NULL, NULL, hInstance, NULL);
+    g_hWnd = CreateWindowW(wc.lpszClassName, L"MuteDiscordTray", 0, 0, 0, 0, 0, NULL, NULL, hInstance, NULL);
     if (!g_hWnd) {
         return 1;
     }

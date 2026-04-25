@@ -13,32 +13,32 @@ static HICON LoadTrayIcon() {
 }
 
 void AddTrayIcon(HWND hWnd) {
-    g_nid.cbSize = sizeof(NOTIFYICONDATAA);
+    g_nid.cbSize = sizeof(NOTIFYICONDATAW);
     g_nid.hWnd = hWnd;
     g_nid.uID = 1;
     g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_nid.uCallbackMessage = WM_TRAYICON;
     g_nid.hIcon = LoadTrayIcon();
-    lstrcpyA(g_nid.szTip, "MuteDiscordDevice v" MDD_VERSION_STRING);
+    wcscpy_s(g_nid.szTip, ARRAYSIZE(g_nid.szTip), L"MuteDiscordDevice v" MDD_VERSION_STRING);
 
     for (int attempt = 0; attempt < 10; ++attempt) {
-        if (Shell_NotifyIconA(NIM_ADD, &g_nid)) return;
-        Shell_NotifyIconA(NIM_DELETE, &g_nid);
+        if (Shell_NotifyIconW(NIM_ADD, &g_nid)) return;
+        Shell_NotifyIconW(NIM_DELETE, &g_nid);
         Sleep(500);
     }
 }
 
 void RemoveTrayIcon(HWND) {
-    Shell_NotifyIconA(NIM_DELETE, &g_nid);
+    Shell_NotifyIconW(NIM_DELETE, &g_nid);
 }
 
 void ShowTrayMenu(HWND hWnd, POINT pt) {
     HMENU hMenu = CreatePopupMenu();
-    InsertMenuA(hMenu, -1, MF_BYPOSITION, ID_TRAY_ROUTETARGET, "Route Discord Audio...");
-    InsertMenuA(hMenu, -1, MF_BYPOSITION, ID_TRAY_CONFIGURE,   "Configure Mute Devices...");
-    InsertMenuA(hMenu, -1, MF_BYPOSITION, ID_TRAY_DIAGNOSE,    "Diagnose Discord Sessions...");
-    InsertMenuA(hMenu, -1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-    InsertMenuA(hMenu, -1, MF_BYPOSITION, ID_TRAY_EXIT, "Exit");
+    InsertMenuW(hMenu, -1, MF_BYPOSITION, ID_TRAY_ROUTETARGET, L"Route Discord Audio...");
+    InsertMenuW(hMenu, -1, MF_BYPOSITION, ID_TRAY_CONFIGURE,   L"Configure Mute Devices...");
+    InsertMenuW(hMenu, -1, MF_BYPOSITION, ID_TRAY_DIAGNOSE,    L"Diagnose Discord Sessions...");
+    InsertMenuW(hMenu, -1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    InsertMenuW(hMenu, -1, MF_BYPOSITION, ID_TRAY_EXIT, L"Exit");
     SetForegroundWindow(hWnd);
     TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, 0, hWnd, NULL);
     PostMessage(hWnd, WM_NULL, 0, 0);

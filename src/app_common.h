@@ -65,7 +65,7 @@ static UINT WM_REQUEST_SHUTDOWN = 0;
 
 // ---------- Window class names ----------
 
-static const char* kTrayClassName = "MuteDiscordTrayClass";
+static const wchar_t* kTrayClassName = L"MuteDiscordTrayClass";
 static const wchar_t* kConfigClassName = L"MuteDiscordConfigClass";
 static const wchar_t* kRouteTargetClassName = L"MuteDiscordRouteTargetClass";
 static const wchar_t* kSessionPickerClassName = L"MuteDiscordSessionPickerClass";
@@ -78,7 +78,7 @@ static const wchar_t* kShutdownMessageName = L"MuteDiscordDevice_RequestShutdown
 
 extern HINSTANCE g_hInst;
 extern HWND g_hWnd;
-extern NOTIFYICONDATAA g_nid;
+extern NOTIFYICONDATAW g_nid;
 extern HANDLE g_workerThread;
 extern HANDLE g_exitEvent;
 extern HWND g_hConfigWnd;
