@@ -120,6 +120,12 @@ std::wstring GetProcessImagePath(DWORD pid);
 /// Check if Discord.exe is currently running.
 bool isDiscordRunning();
 
+/// Check if a PID belongs to Discord.exe (uses internal cache).
+bool IsDiscordProcess(DWORD pid);
+
+/// Clear the process-name cache (call once per mute cycle).
+void ClearProcessNameCache();
+
 /// Dialog helper: check if owner window should be disabled during modal dialog.
 bool ShouldDisableOwnerWindow(HWND owner);
 

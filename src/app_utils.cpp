@@ -1,5 +1,23 @@
 #include "app_common.h"
 #include <sstream>
+#include <unordered_map>
+
+// ---------- Process name cache (Fix 3.2) ----------
+
+static std::unordered_map<DWORD, bool> g_processNameCache;
+
+void ClearProcessNameCache() {
+    g_processNameCache.clear();
+}
+
+bool IsDiscordProcess(DWORD pid) {
+    auto it = g_processNameCache.find(pid);
+    if (it != g_processNameCache.end()) return it->second;
+
+    bool isDiscord = (_wcsicmp(GetProcessName(pid).c_str(), L"Discord.exe") == 0);
+    g_processNameCache[pid] = isDiscord;
+    return isDiscord;
+}
 
 bool HasCommandLineArg(int argc, char* argv[], const char* arg) {
     for (int i = 1; i < argc; i++) {

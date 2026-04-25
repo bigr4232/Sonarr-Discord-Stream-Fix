@@ -87,6 +87,7 @@ void SeedDefaultDevicesIfFirstRun() {
 }
 
 int checkToMute() {
+    ClearProcessNameCache();  // Reset PID cache for this mute cycle (Fix 3.2)
     IMMDeviceEnumerator* pEnum = GetCachedDeviceEnumerator();
     if (!pEnum) return 1;
 

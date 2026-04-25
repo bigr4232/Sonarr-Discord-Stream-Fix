@@ -57,7 +57,7 @@ std::vector<DiscordSession> EnumerateDiscordSessions(const std::wstring& deviceN
 
         DWORD pid = 0;
         pControl2->GetProcessId(&pid);
-        if (_wcsicmp(GetProcessName(pid).c_str(), L"Discord.exe") != 0) continue;
+        if (!IsDiscordProcess(pid)) continue;
 
         DiscordSession s;
         s.pControl = pControl;
@@ -126,7 +126,7 @@ std::unordered_map<std::wstring, std::vector<DWORD>> BuildDiscordPidsByDevice(IM
             CComQIPtr<IAudioSessionControl2> pCtl2(pCtl);
             if (!pCtl2) continue;
             DWORD pid = 0; pCtl2->GetProcessId(&pid);
-            if (_wcsicmp(GetProcessName(pid).c_str(), L"Discord.exe") == 0)
+            if (IsDiscordProcess(pid))
                 result[devName].push_back(pid);
         }
     }

@@ -1,4 +1,5 @@
 #include "app_common.h"
+#include <thread>
 #include <algorithm>
 
 struct ConfigState {
@@ -201,26 +202,31 @@ LRESULT CALLBACK ConfigWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             }
             DestroyWindow(hWnd);
             if (isDiscordRunning()) {
-                std::vector<std::wstring> devicesToReset;
-                for (const auto& oldCfg : previous) {
-                    auto it = std::find_if(checked.begin(), checked.end(),
-                        [&](const DeviceConfig& cfg) { return cfg.name == oldCfg.name; });
-                    if (it == checked.end() ||
-                        SerializeDeviceConfig(*it) != SerializeDeviceConfig(oldCfg)) {
-                        devicesToReset.push_back(oldCfg.name);
-                    }
-                }
-
-                if (!devicesToReset.empty()) {
-                    CComPtr<IMMDeviceEnumerator> pEnum;
-                    if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                        IID_PPV_ARGS(&pEnum)))) {
-                        for (const auto& deviceName : devicesToReset) {
-                            UnmuteDiscordSessionsOnDevice(deviceName, pEnum);
+                // Offload muting work to a background thread so the UI remains responsive.
+                std::thread([devicesToReset = std::vector<std::wstring>{}, previous, checked]() mutable {
+                    // Compute which devices changed.
+                    for (const auto& oldCfg : previous) {
+                        auto it = std::find_if(checked.begin(), checked.end(),
+                            [&](const DeviceConfig& cfg) { return cfg.name == oldCfg.name; });
+                        if (it == checked.end() ||
+                            SerializeDeviceConfig(*it) != SerializeDeviceConfig(oldCfg)) {
+                            devicesToReset.push_back(oldCfg.name);
                         }
                     }
-                }
-                checkToMute();
+
+                    // Unmute sessions on devices whose config changed.
+                    if (!devicesToReset.empty()) {
+                        IMMDeviceEnumerator* pEnum = GetCachedDeviceEnumerator();
+                        if (pEnum) {
+                            for (const auto& deviceName : devicesToReset) {
+                                UnmuteDiscordSessionsOnDevice(deviceName, pEnum);
+                            }
+                        }
+                    }
+
+                    // Apply new mute configuration.
+                    checkToMute();
+                }).detach();
             }
             return 0;
         }
