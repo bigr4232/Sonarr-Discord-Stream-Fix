@@ -25,7 +25,8 @@ bool SaveRouteTargetToFile(const std::wstring& deviceName) {
         if (!f.is_open()) return false;
         f << deviceName << L"\n";
     }
-    return MoveFileExW(tmp.c_str(), L"route_target.txt", MOVEFILE_REPLACE_EXISTING) != 0;
+    return MoveFileExW(tmp.c_str(), L"route_target.txt",
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 }
 
 std::vector<DeviceConfig> LoadDevicesFromFile(const std::wstring& filename) {
@@ -70,7 +71,8 @@ bool SaveDevicesToFile(const std::wstring& filename, const std::vector<DeviceCon
                 return false;
             }
         }
-        if (MoveFileExW(tmp.c_str(), filename.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        if (MoveFileExW(tmp.c_str(), filename.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
             return true;
         }
         DeleteFileW(tmp.c_str());
