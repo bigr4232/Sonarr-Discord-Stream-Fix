@@ -87,9 +87,8 @@ void SeedDefaultDevicesIfFirstRun() {
 }
 
 int checkToMute() {
-    CComPtr<IMMDeviceEnumerator> pEnum;
-    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-        IID_PPV_ARGS(&pEnum)))) return 1;
+    IMMDeviceEnumerator* pEnum = GetCachedDeviceEnumerator();
+    if (!pEnum) return 1;
 
     std::wstring routeTarget = LoadRouteTargetFromFile();
     if (!routeTarget.empty()) {

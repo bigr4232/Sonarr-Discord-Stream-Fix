@@ -36,3 +36,6 @@ target_compile_definitions(MuteDiscordDevice_Config PRIVATE
 if(MSVC)
     target_compile_options(MuteDiscordDevice_Config PRIVATE /W3 /permissive-)
 endif()
+
+enable_testing()
+add_subdirectory(tests)

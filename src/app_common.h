@@ -82,6 +82,10 @@ extern HANDLE g_exitEvent;
 extern HWND g_hConfigWnd;
 extern bool debugMode;
 
+/// Cached IMMDeviceEnumerator to avoid repeated CoCreateInstance overhead.
+/// Returns a shared enumerator lazily initialized on first call.
+IMMDeviceEnumerator* GetCachedDeviceEnumerator();
+
 // ---------- DiscordSession data model ----------
 
 struct DiscordSession {
