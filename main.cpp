@@ -715,7 +715,7 @@ int checkToMute() {
 
     // Compute Discord PIDs per device once; derive "other PIDs" per device from this map.
     auto buildOtherPids = [](const std::wstring& exclude,
-                             const std::unordered_map<std::wstring, std::vector<DWORD>>& byDevice) {
+                              const std::unordered_map<std::wstring, std::vector<DWORD>>& byDevice) {
         std::vector<DWORD> other;
         for (const auto& kv : byDevice)
             if (kv.first != exclude)
@@ -725,16 +725,46 @@ int checkToMute() {
 
     auto pidsByDevice = BuildDiscordPidsByDevice(pEnum);
 
+    // Retry budget: when a device returns 2 (no matching session yet), we wait and
+    // re-scan from the beginning. Limit total retries to avoid blocking the worker
+    // thread indefinitely, and check g_exitEvent each wait so --shutdown still works.
+    static const int MAX_RETRIES = 5;
+    static const DWORD WAIT_MS = 1000;
+    int retriesLeft = MAX_RETRIES;
+
     int check = 0;
     for (int i = 0; i < (int)devices.size(); i++) {
+        // Check for shutdown request before processing each device
+        if (g_exitEvent && WaitForSingleObject(g_exitEvent, 0) == WAIT_OBJECT_0) {
+            #ifdef DEBUG
+            OutputDebugStringA("checkToMute: shutdown requested, exiting early.\n");
+            #endif
+            return 0;
+        }
+
         auto otherPids = buildOtherPids(devices[i].name, pidsByDevice);
         check = MuteDiscordOnDevice(devices[i], otherPids, pEnum);
         if (check == 2) {
-            i = -1;
+            if (retriesLeft <= 0) {
+                #ifdef DEBUG
+                OutputDebugStringA("checkToMute: retry budget exhausted, giving up.\n");
+                #endif
+                break;
+            }
+            retriesLeft--;
             #ifdef DEBUG
-            OutputDebugStringA("Sleeping for 5 seconds\n");
+            std::wstringstream dss;
+            dss << L"checkToMute: device returned retry, " << retriesLeft << L" retries left.\n";
+            OutputDebugStringW(dss.str().c_str());
             #endif
-            Sleep(5000);
+            // Wait with interruptibility so shutdown requests are not blocked.
+            if (g_exitEvent && WaitForSingleObject(g_exitEvent, WAIT_MS) == WAIT_OBJECT_0) {
+                #ifdef DEBUG
+                OutputDebugStringA("checkToMute: shutdown requested during wait, exiting.\n");
+                #endif
+                return 0;
+            }
+            i = -1;
             pidsByDevice = BuildDiscordPidsByDevice(pEnum);
         }
     }
