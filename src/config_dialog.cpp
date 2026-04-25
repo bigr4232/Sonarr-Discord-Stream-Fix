@@ -1,7 +1,7 @@
 #include "app_common.h"
 #include <thread>
 
-// Fix 5.2: const_cast on ListView strings is safe because:
+// const_cast on ListView strings is safe because:
 // - ListView does NOT modify the string data pointed to by pszText (MSDN documented behavior)
 // - std::wstring::c_str() returns a non-const pointer in MSVC debug/release modes
 // - The strings remain alive for the duration of the ListView display (stored in rowConfigs vector)

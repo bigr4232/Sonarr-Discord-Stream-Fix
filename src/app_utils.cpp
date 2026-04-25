@@ -2,7 +2,7 @@
 #include <sstream>
 #include <unordered_map>
 
-// ---------- Process name cache (Fix 3.2) ----------
+// ---------- Process name cache ----------
 
 static std::unordered_map<DWORD, bool> g_processNameCache;
 

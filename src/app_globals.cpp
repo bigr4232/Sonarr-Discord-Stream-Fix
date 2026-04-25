@@ -11,7 +11,7 @@ HANDLE g_exitEvent = nullptr;
 HWND g_hConfigWnd = nullptr;
 std::atomic<bool> debugMode{false};
 
-// ---------- Cached device enumerator (Fix 3.1) ----------
+// ---------- Cached device enumerator ----------
 
 static CComPtr<IMMDeviceEnumerator> g_deviceEnumerator;
 static std::once_flag g_enumInitFlag;

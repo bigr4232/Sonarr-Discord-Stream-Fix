@@ -17,9 +17,19 @@ static const GUID IID_IAudioPolicyConfigFactory_Downlevel =
 static const GUID IID_IAudioPolicyConfigFactory_21H2 =
     { 0xab3d4648, 0xe242, 0x459f, { 0xb0, 0x2f, 0x54, 0x1c, 0x70, 0x30, 0x63, 0x24 } };
 
+// Vtable indexes for Windows.Media.Internal.AudioPolicyConfig (undocumented WinRT class).
+// These were determined by inspecting the vtable layout in IDA Pro / WinDbg on Windows 10 19041 and
+// verified on Windows 11 22631. The IIDs below are the activation factory interfaces for each era.
+// If routing stops working after a Windows update, check whether these indexes or IIDs changed.
+// Index 2 = IUnknown::Release (standard COM vtable slot)
+// Index 25 = SetPersistedDefaultAudioEndpoint(pid, flow, role, deviceId)
+// Index 26 = GetPersistedDefaultAudioEndpoint(pid, flow, role, &deviceId)
 static const int POLICY_CONFIG_INDEX_RELEASE = 2;
 static const int POLICY_CONFIG_INDEX_SET_PERSISTED_DEFAULT_ENDPOINT = 25;
 static const int POLICY_CONFIG_INDEX_GET_PERSISTED_DEFAULT_ENDPOINT = 26;
+
+// Windows 10 21H2 (build 19044+) introduced a new factory IID for AudioPolicyConfig.
+// Below this build, use the downlevel IID; at or above, use the 21H2 IID.
 static const DWORD BUILD_WINDOWS_10_21H2_IID_SWITCH = 21390;
 
 static void AppendRouteLog(const std::wstring& line) {
@@ -51,7 +61,7 @@ static GUID ResolvePolicyConfigFactoryIid() {
     return IID_IAudioPolicyConfigFactory_Downlevel;
 }
 
-// Fix 5.3: Validate registry key names before deletion.
+// Validate registry key names before deletion.
 // Keys under PolicyConfig\PropertyStore are GUIDs like {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}.
 static bool IsValidPolicyKey(const std::wstring& key) {
     if (key.size() < 38 || key.front() != L'{' || key.back() != L'}') return false;
@@ -89,7 +99,7 @@ static void RemoveDiscordPersistedRenderEndpoints(const std::vector<std::wstring
         return;
     }
 
-    // Fix 3.4: Cache of known Discord endpoint keys to avoid full enumeration each time.
+    // Cache of known Discord endpoint keys to avoid full enumeration each time.
     static std::vector<std::wstring> s_cachedDiscordKeys;
 
     // First, try deleting from cached keys (fast path).
@@ -271,7 +281,7 @@ void RouteDiscordAudioOutput(const std::wstring& targetDeviceFriendlyName, IMMDe
                 reinterpret_cast<HRESULT (WINAPI*)(void*, UINT, EDataFlow, ERole, HSTRING*)>(
                     vtable[POLICY_CONFIG_INDEX_GET_PERSISTED_DEFAULT_ENDPOINT]);
 
-            // Fix 5.1: Runtime validation of undocumented API vtable pointers.
+            // Runtime validation of undocumented API vtable pointers.
             if (!releaseFactory || !setPersistedDefaultAudioEndpoint || !getPersistedDefaultAudioEndpoint) {
                 AppendRouteLog(L"WARNING: Undocumented API vtable indexes are invalid for this Windows build. "
                                L"Routing will not work. Please report your Windows build number (" +

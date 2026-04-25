@@ -117,7 +117,7 @@ std::unordered_map<std::wstring, std::vector<DWORD>> BuildDiscordPidsByDevice(
         PropVariantClear(&varName);
         if (devName.empty()) continue;
 
-        // Fix 3.3: skip devices not in the config filter set
+        // skip devices not in the config filter set
         if (deviceNames && deviceNames->find(devName) == deviceNames->end()) continue;
 
         CComPtr<IAudioSessionManager2> pMgr;

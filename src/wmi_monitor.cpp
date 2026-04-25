@@ -98,7 +98,7 @@ static void WmiMonitorThreadProc() {
         if (pEvent) pEvent->Release();
     }
 
-    // Fix 4.3: Release the enumerator promptly on shutdown instead of waiting for scope exit.
+    // Release the enumerator promptly on shutdown instead of waiting for scope exit.
     if (pEnumerator) {
         pEnumerator->Release();
         pEnumerator = nullptr;
