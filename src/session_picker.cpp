@@ -227,7 +227,11 @@ LRESULT CALLBACK SessionPickerWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM
         DestroyWindow(hWnd);
         return 0;
     case WM_DESTROY:
-        if (st) RestoreOwnerWindow(st->hOwner);
+        if (st) {
+            RestoreOwnerWindow(st->hOwner);
+            delete st;
+        }
+        SetWindowLongPtrW(hWnd, GWLP_USERDATA, 0);
         PostMessage(hWnd, WM_NULL, 0, 0);
         return 0;
     }
@@ -252,14 +256,16 @@ static void RegisterSessionPickerClassOnce() {
 bool ShowSessionPicker(HWND owner, const std::wstring& deviceName, DeviceConfig& ioCfg) {
     RegisterSessionPickerClassOnce();
 
-    SessionPickerState state;
-    state.hOwner = owner;
-    state.deviceName = deviceName;
-    state.sessions = EnumerateDiscordSessions(deviceName);
-    state.ioCfg = &ioCfg;
+    // Heap-allocate so the state outlives this function safely.
+    // The window procedure deletes it in WM_DESTROY.
+    SessionPickerState* state = new SessionPickerState();
+    state->hOwner = owner;
+    state->deviceName = deviceName;
+    state->sessions = EnumerateDiscordSessions(deviceName);
+    state->ioCfg = &ioCfg;
 
     int width = 700;
-    int height = 180 + (int)state.sessions.size() * 46 + (state.sessions.empty() ? 60 : 0);
+    int height = 180 + (int)state->sessions.size() * 46 + (state->sessions.empty() ? 60 : 0);
     if (height < 260) height = 260;
     int x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
     int y = (GetSystemMetrics(SM_CYSCREEN) - height) / 2;
@@ -269,8 +275,11 @@ bool ShowSessionPicker(HWND owner, const std::wstring& deviceName, DeviceConfig&
         L"Pick Discord session to mute",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
         x, y, width, height,
-        owner, NULL, g_hInst, &state);
-    if (!hWnd) return false;
+        owner, NULL, g_hInst, state);
+    if (!hWnd) {
+        delete state;
+        return false;
+    }
     ShowWindow(hWnd, SW_SHOW);
     UpdateWindow(hWnd);
 
@@ -282,7 +291,13 @@ bool ShowSessionPicker(HWND owner, const std::wstring& deviceName, DeviceConfig&
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    return state.accepted;
+    bool result = state->accepted;
+    // If the window was destroyed normally, state was already deleted in WM_DESTROY.
+    // Only delete if the window still exists (e.g., message loop broke early).
+    if (IsWindow(hWnd)) {
+        delete state;
+    }
+    return result;
 }
 
 // ---------- Route target picker dialog ----------
