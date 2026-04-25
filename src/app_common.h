@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "../mdd_pure.h"
 #include "../version.h"
@@ -137,7 +138,9 @@ void RestoreOwnerWindow(HWND owner);
 // audio_device
 CComPtr<IMMDevice> FindDeviceByName(const std::wstring& deviceName, IMMDeviceEnumerator* pEnumIn = nullptr);
 std::vector<DiscordSession> EnumerateDiscordSessions(const std::wstring& deviceName, IMMDeviceEnumerator* pEnum = nullptr);
-std::unordered_map<std::wstring, std::vector<DWORD>> BuildDiscordPidsByDevice(IMMDeviceEnumerator* pEnum = nullptr);
+/// @param deviceNames If non-empty, only enumerate these devices (fix 3.3).
+std::unordered_map<std::wstring, std::vector<DWORD>> BuildDiscordPidsByDevice(
+    IMMDeviceEnumerator* pEnum, const std::unordered_set<std::wstring>* deviceNames = nullptr);
 int MuteDiscordOnDevice(const DeviceConfig& cfg, const std::vector<DWORD>& otherPids, IMMDeviceEnumerator* pEnum = nullptr);
 void UnmuteDiscordSessionsOnDevice(const std::wstring& deviceName, IMMDeviceEnumerator* pEnum = nullptr);
 std::vector<std::wstring> EnumerateRenderDevices(IMMDeviceEnumerator* pEnumIn = nullptr);

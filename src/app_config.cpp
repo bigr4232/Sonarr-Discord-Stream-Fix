@@ -3,6 +3,7 @@
 #include <sstream>
 #include <chrono>
 #include <ctime>
+#include <mutex>
 
 // ---------- Config I/O ----------
 
@@ -40,20 +41,44 @@ std::vector<DeviceConfig> LoadDevicesFromFile(const std::wstring& filename) {
 }
 
 bool SaveDevicesToFile(const std::wstring& filename, const std::vector<DeviceConfig>& devices) {
-    std::wstring tmp = filename + L".tmp";
-    {
-        std::wofstream out(tmp, std::ios::trunc);
-        if (!out) return false;
-        for (const auto& d : devices) {
-            out << SerializeDeviceConfig(d) << L"\n";
+    static std::mutex s_saveMutex;
+    std::lock_guard<std::mutex> lock(s_saveMutex);
+
+    // Retry up to 3 times with increasing backoff (handles transient file locks from AV/watchers).
+    static const int MAX_RETRIES = 3;
+    static const DWORD BASE_DELAY_MS = 50;
+    for (int attempt = 0; attempt < MAX_RETRIES; ++attempt) {
+        std::wstring tmp = filename + L".tmp";
+        {
+            std::wofstream out(tmp, std::ios::trunc);
+            if (!out) {
+                if (attempt < MAX_RETRIES - 1) {
+                    Sleep(BASE_DELAY_MS * (1 << attempt));
+                    continue;
+                }
+                return false;
+            }
+            for (const auto& d : devices) {
+                out << SerializeDeviceConfig(d) << L"\n";
+            }
+            if (!out) {
+                DeleteFileW(tmp.c_str());
+                if (attempt < MAX_RETRIES - 1) {
+                    Sleep(BASE_DELAY_MS * (1 << attempt));
+                    continue;
+                }
+                return false;
+            }
         }
-        if (!out) return false;
-    }
-    if (!MoveFileExW(tmp.c_str(), filename.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        if (MoveFileExW(tmp.c_str(), filename.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            return true;
+        }
         DeleteFileW(tmp.c_str());
-        return false;
+        if (attempt < MAX_RETRIES - 1) {
+            Sleep(BASE_DELAY_MS * (1 << attempt));
+        }
     }
-    return true;
+    return false;
 }
 
 void SeedDefaultDevicesIfFirstRun() {
@@ -99,6 +124,10 @@ int checkToMute() {
     auto devices = LoadDevicesFromFile(L"devices.txt");
     if (devices.empty()) return 0;
 
+    // Fix 3.3: build a filter set of configured device names
+    std::unordered_set<std::wstring> configuredNames;
+    for (const auto& d : devices) configuredNames.insert(d.name);
+
     auto buildOtherPids = [](const std::wstring& exclude,
                               const std::unordered_map<std::wstring, std::vector<DWORD>>& byDevice) {
         std::vector<DWORD> other;
@@ -108,7 +137,7 @@ int checkToMute() {
         return other;
     };
 
-    auto pidsByDevice = BuildDiscordPidsByDevice(pEnum);
+    auto pidsByDevice = BuildDiscordPidsByDevice(pEnum, &configuredNames);
 
     static const int MAX_RETRIES = 5;
     static const DWORD WAIT_MS = 1000;
@@ -145,7 +174,7 @@ int checkToMute() {
                 return 0;
             }
             i = -1;
-            pidsByDevice = BuildDiscordPidsByDevice(pEnum);
+            pidsByDevice = BuildDiscordPidsByDevice(pEnum, &configuredNames);
         }
     }
     return 0;
@@ -171,7 +200,7 @@ void RunDiagnostic(HWND owner) {
         for (const auto& c : configs) deviceNames.push_back(c.name);
     }
 
-    auto pidsByDevice = BuildDiscordPidsByDevice();
+    auto pidsByDevice = BuildDiscordPidsByDevice(nullptr, nullptr);
 
     for (const auto& devName : deviceNames) {
         ss << L"Device: " << devName << L"\n";

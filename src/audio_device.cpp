@@ -91,8 +91,10 @@ std::vector<DiscordSession> EnumerateDiscordSessions(const std::wstring& deviceN
     return sessions;
 }
 
-// Builds a map of { deviceName -> [Discord PIDs on that device] } for all active render devices.
-std::unordered_map<std::wstring, std::vector<DWORD>> BuildDiscordPidsByDevice(IMMDeviceEnumerator* pEnumIn) {
+// Builds a map of { deviceName -> [Discord PIDs on that device] }.
+// If deviceNames is non-null, only enumerate devices whose name appears in the set.
+std::unordered_map<std::wstring, std::vector<DWORD>> BuildDiscordPidsByDevice(
+    IMMDeviceEnumerator* pEnumIn, const std::unordered_set<std::wstring>* deviceNames) {
     std::unordered_map<std::wstring, std::vector<DWORD>> result;
     CComPtr<IMMDeviceEnumerator> pLocalEnum;
     IMMDeviceEnumerator* pEnum = pEnumIn;
@@ -114,6 +116,9 @@ std::unordered_map<std::wstring, std::vector<DWORD>> BuildDiscordPidsByDevice(IM
         std::wstring devName = nameOk ? varName.pwszVal : L"";
         PropVariantClear(&varName);
         if (devName.empty()) continue;
+
+        // Fix 3.3: skip devices not in the config filter set
+        if (deviceNames && deviceNames->find(devName) == deviceNames->end()) continue;
 
         CComPtr<IAudioSessionManager2> pMgr;
         if (FAILED(pDevice->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, (void**)&pMgr))) continue;
