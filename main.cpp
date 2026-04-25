@@ -2025,16 +2025,27 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     cwc.lpszClassName = L"MuteDiscordConfigClass";
     RegisterClassW(&cwc);
 
+    // Register window messages BEFORE creating the tray window so there is no
+    // gap where an incoming shutdown broadcast could arrive with an unhandled
+    // message ID. RegisterWindowMessageW is system-wide and thread-safe; all
+    // instances of this app will see the same message ID for a given name.
+    WM_TASKBARCREATED = RegisterWindowMessageW(L"TaskbarCreated");
+    WM_REQUEST_SHUTDOWN = RegisterWindowMessageW(kShutdownMessageName);
+
     // Title must be non-empty: on some Windows 11 builds, DefWindowProc returns
     // FALSE from WM_NCCREATE when lpszName is "" and the window is never
     // created. The string is not user-visible (the window is hidden).
     g_hWnd = CreateWindowA(wc.lpszClassName, "MuteDiscordTray", 0, 0, 0, 0, 0, NULL, NULL, hInstance, NULL);
+    if (!g_hWnd) {
+        return 1;
+    }
 
-    WM_TASKBARCREATED = RegisterWindowMessageW(L"TaskbarCreated");
-    WM_REQUEST_SHUTDOWN = RegisterWindowMessageW(kShutdownMessageName);
-    // Allow the broadcast to reach us even when running unelevated alongside
-    // an elevated Explorer (UIPI blocks WM_USER+ range by default).
+    // Allow the broadcast messages to reach us even when running unelevated
+    // alongside an elevated Explorer (UIPI blocks WM_USER+ range by default).
     ChangeWindowMessageFilterEx(g_hWnd, WM_TASKBARCREATED, MSGFLT_ALLOW, NULL);
+    if (WM_REQUEST_SHUTDOWN) {
+        ChangeWindowMessageFilterEx(g_hWnd, WM_REQUEST_SHUTDOWN, MSGFLT_ALLOW, NULL);
+    }
 
     AddTrayIcon(g_hWnd);
 
