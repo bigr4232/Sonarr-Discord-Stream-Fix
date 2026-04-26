@@ -66,7 +66,11 @@ static void PopulateConfigList(HWND hList) {
         ListView_InsertItem(hList, &item);
 
         std::wstring summary = FilterSummary(cfg);
-        ListView_SetItemText(hList, row, 1, const_cast<LPWSTR>(summary.c_str()));
+        if (SendMessageW(hList, LVM_SETITEMTEXTW, (WPARAM)row,
+            MAKELPARAM(1, (LPARAM)const_cast<LPWSTR>(summary.c_str()))) == 0) {
+            OutputDebugStringW(L"[MDD] ListView_SetItemText failed for device: ");
+            OutputDebugStringW(name.c_str());
+        }
 
         ListView_SetCheckState(hList, row, existing != nullptr);
         state->rowConfigs.push_back(std::move(cfg));
@@ -88,7 +92,11 @@ static void PopulateConfigList(HWND hList) {
         ListView_InsertItem(hList, &item);
 
         std::wstring summary = FilterSummary(cfg);
-        ListView_SetItemText(hList, row, 1, const_cast<LPWSTR>(summary.c_str()));
+        if (SendMessageW(hList, LVM_SETITEMTEXTW, (WPARAM)row,
+            MAKELPARAM(1, (LPARAM)const_cast<LPWSTR>(summary.c_str()))) == 0) {
+            OutputDebugStringW(L"[MDD] ListView_SetItemText failed for offline device: ");
+            OutputDebugStringW(c.name.c_str());
+        }
 
         ListView_SetCheckState(hList, row, TRUE);
         state->rowConfigs.push_back(std::move(cfg));
@@ -256,7 +264,11 @@ LRESULT CALLBACK ConfigWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             }
             if (ShowSessionPicker(hWnd, cfg->name, *cfg)) {
                 std::wstring summary = FilterSummary(*cfg);
-                ListView_SetItemText(state->hList, sel, 1, const_cast<LPWSTR>(summary.c_str()));
+                if (SendMessageW(state->hList, LVM_SETITEMTEXTW, (WPARAM)sel,
+                    MAKELPARAM(1, (LPARAM)const_cast<LPWSTR>(summary.c_str()))) == 0) {
+                    OutputDebugStringW(L"[MDD] ListView_SetItemText failed after session picker for device: ");
+                    OutputDebugStringW(cfg->name.c_str());
+                }
                 ListView_SetCheckState(state->hList, sel, TRUE);
             }
             return 0;
