@@ -26,6 +26,14 @@ void AddTrayIcon(HWND hWnd) {
         Shell_NotifyIconW(NIM_DELETE, &g_nid);
         Sleep(500);
     }
+
+    // All retries exhausted — notify the user so they know the app is running but broken.
+    MessageBoxW(hWnd,
+        L"Failed to add tray icon after 10 attempts.\n\n"
+        L"The application is still running but you will not be able to interact with it.\n"
+        L"Please restart the application or check Task Manager.",
+        L"MuteDiscordDevice — Tray Icon Error",
+        MB_OK | MB_ICONERROR);
 }
 
 void RemoveTrayIcon(HWND) {
