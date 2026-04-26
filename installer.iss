@@ -8,7 +8,7 @@
 ; Build output directory. Defaults to the CMake release output; override with
 ; /DBuildDir=x64\Release to package an MSBuild solution build instead.
 #ifndef BuildDir
-  #define BuildDir "build-cmake\Release"
+  #define BuildDir "build\Release"
 #endif
 
 #ifndef MyAppVersion
