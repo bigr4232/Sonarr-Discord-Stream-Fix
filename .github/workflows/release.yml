@@ -55,7 +55,7 @@ jobs:
 
       - name: Compile installer
         shell: pwsh
-        run: iscc /DMyAppVersion=$env:VERSION installer.iss
+        run: iscc /DMyAppVersion=$env:VERSION /DBuildDir=build-cmake\Release installer.iss
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
