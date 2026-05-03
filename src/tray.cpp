@@ -40,11 +40,24 @@ void RemoveTrayIcon(HWND) {
     Shell_NotifyIconW(NIM_DELETE, &g_nid);
 }
 
+static void ShowAboutDialog(HWND owner) {
+    MessageBoxW(owner,
+        L"MuteDiscordDevice\n"
+        L"Version " MDD_VERSION_W L"\n\n"
+        L"Mutes Discord only on the audio devices you choose, so streamers\n"
+        L"can keep Discord audible on headphones while keeping it off the\n"
+        L"stream.",
+        L"About MuteDiscordDevice",
+        MB_OK | MB_ICONINFORMATION);
+}
+
 void ShowTrayMenu(HWND hWnd, POINT pt) {
     HMENU hMenu = CreatePopupMenu();
     InsertMenuW(hMenu, -1, MF_BYPOSITION, ID_TRAY_ROUTETARGET, L"Route Discord Audio...");
     InsertMenuW(hMenu, -1, MF_BYPOSITION, ID_TRAY_CONFIGURE,   L"Configure Mute Devices...");
     InsertMenuW(hMenu, -1, MF_BYPOSITION, ID_TRAY_DIAGNOSE,    L"Diagnose Discord Sessions...");
+    InsertMenuW(hMenu, -1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+    InsertMenuW(hMenu, -1, MF_BYPOSITION, ID_TRAY_ABOUT,       L"About...");
     InsertMenuW(hMenu, -1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
     InsertMenuW(hMenu, -1, MF_BYPOSITION, ID_TRAY_EXIT, L"Exit");
     SetForegroundWindow(hWnd);
@@ -85,6 +98,9 @@ LRESULT CALLBACK TrayWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) 
         }
         else if (LOWORD(wParam) == ID_TRAY_DIAGNOSE) {
             RunDiagnostic(hWnd);
+        }
+        else if (LOWORD(wParam) == ID_TRAY_ABOUT) {
+            ShowAboutDialog(hWnd);
         }
         break;
     case WM_QUERYENDSESSION:
