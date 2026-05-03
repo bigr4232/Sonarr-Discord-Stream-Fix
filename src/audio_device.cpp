@@ -177,13 +177,13 @@ int MuteDiscordOnDevice(const DeviceConfig& cfg, const std::vector<DWORD>& other
             #endif
             return 2;
         }
-        int sharedCount = 0;
+        std::unordered_set<DWORD> sharedPids;
         for (auto& s : sessions)
             if (std::find(otherPids.begin(), otherPids.end(), s.pid) != otherPids.end())
-                sharedCount++;
-        if (sharedCount != 1) {
+                sharedPids.insert(s.pid);
+        if (sharedPids.size() != 1) {
             #ifdef DEBUG
-            OutputDebugStringA("StreamOnly: ambiguous (not exactly one shared session); deferring.\n");
+            OutputDebugStringA("StreamOnly: ambiguous (not exactly one shared Discord process); deferring.\n");
             #endif
             return 2;
         }
