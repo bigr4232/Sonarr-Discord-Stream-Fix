@@ -11,10 +11,15 @@ void ClearProcessNameCache() {
 }
 
 bool IsDiscordProcess(DWORD pid) {
+    // Only trust cached "true" results. A cached "false" could be a transient
+    // OpenProcess failure on a freshly-spawned Discord child — re-querying on
+    // later retries lets the mute logic catch up once the process is readable.
     auto it = g_processNameCache.find(pid);
-    if (it != g_processNameCache.end()) return it->second;
+    if (it != g_processNameCache.end() && it->second) return true;
 
-    bool isDiscord = (_wcsicmp(GetProcessName(pid).c_str(), L"Discord.exe") == 0);
+    std::wstring name = GetProcessName(pid);
+    if (name.empty()) return false;
+    bool isDiscord = (_wcsicmp(name.c_str(), L"Discord.exe") == 0);
     g_processNameCache[pid] = isDiscord;
     return isDiscord;
 }

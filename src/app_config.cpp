@@ -137,13 +137,24 @@ int checkToMute() {
 
     auto pidsByDevice = BuildDiscordPidsByDevice(pEnum, nullptr);
 
-    static const int MAX_RETRIES = 5;
-    static const DWORD WAIT_MS = 1000;
-    int retriesLeft = MAX_RETRIES;
+    // Per-device retry budget. Discord's audio session on a stream/virtual-cable
+    // device can take >5s to materialise after the WMI process-creation event
+    // fires (especially on cold first-boot / first Go Live). The schedule is
+    // biased early so warm boots stay snappy; the tail extends the total window
+    // to ~30s per device.
+    static const int MAX_RETRIES_PER_DEVICE = 15;
+    auto backoffMs = [](int attempt) -> DWORD {
+        if (attempt < 2) return 500;
+        if (attempt < 4) return 1000;
+        return 2000;
+    };
 
-    int check = 0;
-    for (int i = 0; i < (int)devices.size(); i++) {
-        if (g_exitEvent && WaitForSingleObject(g_exitEvent, 0) == WAIT_OBJECT_0) {
+    auto shutdownRequested = []() {
+        return g_exitEvent && WaitForSingleObject(g_exitEvent, 0) == WAIT_OBJECT_0;
+    };
+
+    for (size_t i = 0; i < devices.size(); i++) {
+        if (shutdownRequested()) {
             #ifdef DEBUG
             OutputDebugStringA("checkToMute: shutdown requested, exiting early.\n");
             #endif
@@ -151,29 +162,41 @@ int checkToMute() {
         }
 
         auto otherPids = buildOtherPids(devices[i].name, pidsByDevice);
-        check = MuteDiscordOnDevice(devices[i], otherPids, pEnum);
-        if (check == 2) {
-            if (retriesLeft <= 0) {
-                #ifdef DEBUG
-                OutputDebugStringA("checkToMute: retry budget exhausted, giving up.\n");
-                #endif
-                break;
-            }
-            retriesLeft--;
-            #ifdef DEBUG
-            std::wstringstream dss;
-            dss << L"checkToMute: device returned retry, " << retriesLeft << L" retries left.\n";
-            OutputDebugStringW(dss.str().c_str());
-            #endif
-            if (g_exitEvent && WaitForSingleObject(g_exitEvent, WAIT_MS) == WAIT_OBJECT_0) {
+        int rc = MuteDiscordOnDevice(devices[i], otherPids, pEnum);
+
+        int retries = 0;
+        while (rc == 2 && retries < MAX_RETRIES_PER_DEVICE) {
+            DWORD wait = backoffMs(retries);
+            if (g_exitEvent && WaitForSingleObject(g_exitEvent, wait) == WAIT_OBJECT_0) {
                 #ifdef DEBUG
                 OutputDebugStringA("checkToMute: shutdown requested during wait, exiting.\n");
                 #endif
                 return 0;
             }
-            i = -1;
+            // Refresh PID map between retries — Discord may have spawned new
+            // child processes or opened sessions on other devices.
+            ClearProcessNameCache();
             pidsByDevice = BuildDiscordPidsByDevice(pEnum, nullptr);
+            otherPids = buildOtherPids(devices[i].name, pidsByDevice);
+            rc = MuteDiscordOnDevice(devices[i], otherPids, pEnum);
+            retries++;
+            #ifdef DEBUG
+            std::wstringstream dss;
+            dss << L"checkToMute: device '" << devices[i].name
+                << L"' retry " << retries << L"/" << MAX_RETRIES_PER_DEVICE
+                << L", rc=" << rc << L"\n";
+            OutputDebugStringW(dss.str().c_str());
+            #endif
         }
+
+        #ifdef DEBUG
+        if (rc == 2) {
+            std::wstringstream dss;
+            dss << L"checkToMute: device '" << devices[i].name
+                << L"' retry budget exhausted, giving up.\n";
+            OutputDebugStringW(dss.str().c_str());
+        }
+        #endif
     }
     return 0;
 }
