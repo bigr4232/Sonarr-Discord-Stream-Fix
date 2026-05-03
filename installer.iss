@@ -5,10 +5,11 @@
 
 #define MyAppExeName     "MuteDiscordDevice_Config.exe"
 
-; Build output directory. Defaults to the CMake release output; override with
+; Build output directory. Defaults to the CMake release output (matches the
+; layout used by .github/workflows/release.yml); override with
 ; /DBuildDir=x64\Release to package an MSBuild solution build instead.
 #ifndef BuildDir
-  #define BuildDir "build\Release"
+  #define BuildDir "build-cmake\Release"
 #endif
 
 #ifndef MyAppVersion

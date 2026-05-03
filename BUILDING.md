@@ -11,11 +11,11 @@
 ### Option A — CMake (works from any shell)
 
 ```
-cmake -S . -B build -A x64
-cmake --build build --config Release
+cmake -S . -B build-cmake -A x64
+cmake --build build-cmake --config Release
 ```
 
-Output: `build\Release\MuteDiscordDevice_Config.exe`.
+Output: `build-cmake\Release\MuteDiscordDevice_Config.exe`. (This is the layout the installer and CI release workflow expect.)
 
 ### Option B — MSBuild
 
@@ -33,12 +33,14 @@ Open `MuteDiscordDevice_Config.sln` in Visual Studio 2022, set the configuration
 
 **Build the installer:**
 
-The installer reads the app version from the built exe automatically. It packages the exe from the CMake output (`build-cmake\Release\`), so run Option A first, then:
+The installer reads the app version from the built exe's PE metadata, which is generated from `version.h` at compile time. **You must rebuild after bumping `version.h`** — otherwise iscc will package a stale exe and name the installer after the old version.
+
+It packages the exe from the CMake output (`build-cmake\Release\`), so run Option A first, then:
 ```
 iscc installer.iss
 ```
 
-To package an MSBuild/Visual Studio build (`x64\Release\`) instead, override the build dir:
+To package an MSBuild/Visual Studio build (`x64\Release\`) instead, override the build dir — but note that a stale `x64\Release\` exe from a previous build will produce an installer named after the old version:
 ```
 iscc /DBuildDir=x64\Release installer.iss
 ```
@@ -51,14 +53,14 @@ The test suite covers all pure (side-effect-free) functions extracted from `main
 `mdd_pure.cpp`. It requires no special setup beyond the normal build prerequisites.
 
 ```
-cmake -S . -B build -A x64
-cmake --build build --config Release
-cd build && ctest -C Release --output-on-failure
+cmake -S . -B build-cmake -A x64
+cmake --build build-cmake --config Release
+cd build-cmake && ctest -C Release --output-on-failure
 ```
 
 Or run the test binary directly:
 ```
-build\tests\Release\MuteDiscordDeviceTests.exe
+build-cmake\tests\Release\MuteDiscordDeviceTests.exe
 ```
 
 Tests cover:
